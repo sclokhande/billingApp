@@ -19,6 +19,7 @@ interface BillingContextProps {
   createInvoice: (invoice: Invoice, items: any[]) => Promise<void>;
   deleteInvoice: (id: string) => Promise<void>;
   clearAllData: () => Promise<void>;
+  clearInvoicesOnly: () => Promise<void>;
   exportData: () => Promise<string>;
   importData: (jsonStr: string) => Promise<void>;
 }
@@ -156,6 +157,16 @@ export const BillingProvider: React.FC<{ children: React.ReactNode }> = ({ child
       setIsLoading(false);
     }
   };
+
+  const clearInvoicesOnly = async () => {
+    try {
+      setIsLoading(true);
+      await dbOps.clearInvoicesOnly();
+      await loadData();
+    } finally {
+      setIsLoading(false);
+    }
+  };
  
   const exportData = async (): Promise<string> => {
     return await dbOps.exportDatabaseData();
@@ -189,6 +200,7 @@ export const BillingProvider: React.FC<{ children: React.ReactNode }> = ({ child
         createInvoice,
         deleteInvoice,
         clearAllData,
+        clearInvoicesOnly,
         exportData,
         importData,
       }}

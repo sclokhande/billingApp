@@ -207,7 +207,15 @@ export const DashboardScreen = ({ navigation }: any) => {
           />
         )}
       </View>
-      <View style={{ height: 40 }} />
+
+      {/* Developer Attribution Footer */}
+      <View style={styles.footerContainer}>
+        <Text variant="labelMedium" style={styles.footerText}>
+          App Developed by Sushant Lokhande
+        </Text>
+      </View>
+
+      <View style={{ height: 20 }} />
     </ScrollView>
   );
 };
@@ -305,5 +313,16 @@ const styles = StyleSheet.create({
   emptyCardContent: {
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  footerContainer: {
+    paddingVertical: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  footerText: {
+    color: '#999999',
+    fontSize: 12,
+    fontWeight: '500',
+    letterSpacing: 0.5,
   },
 });

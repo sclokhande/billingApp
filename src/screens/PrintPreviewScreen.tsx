@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { StyleSheet, View, ScrollView, Alert, Platform } from 'react-native';
+import { StyleSheet, View, ScrollView, Alert, Platform, Share } from 'react-native';
 import { Text, Button, Card, Portal, Dialog, ActivityIndicator, useTheme } from 'react-native-paper';
 import { getInvoiceById, getInvoiceItems } from '../db/operations';
 import { formatThermalReceipt } from '../services/printService';
@@ -61,6 +61,17 @@ export const PrintPreviewScreen = ({ route, navigation }: any) => {
     }, 1000);
   };
 
+  const handleShare = async () => {
+    try {
+      await Share.share({
+        message: receiptText,
+        title: `Invoice ${invoice?.invoiceNumber || ''}`,
+      });
+    } catch (e) {
+      Alert.alert('Error', 'Failed to share receipt.');
+    }
+  };
+
   if (loading) {
     return (
       <View style={[styles.center, { backgroundColor: theme.colors.background }]}>
@@ -101,12 +112,20 @@ export const PrintPreviewScreen = ({ route, navigation }: any) => {
           Close
         </Button>
         <Button
+          mode="contained-tonal"
+          icon="share-variant"
+          style={styles.controlBtn}
+          onPress={handleShare}
+        >
+          Share
+        </Button>
+        <Button
           mode="contained"
           icon="printer"
-          style={styles.controlBtn}
+          style={[styles.controlBtn, { flex: 1.2 }]}
           onPress={handlePrint}
         >
-          Confirm & Print
+          Print
         </Button>
       </View>
 

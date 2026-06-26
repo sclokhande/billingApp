@@ -13,6 +13,7 @@ import {
   Dialog,
   SegmentedButtons,
   ActivityIndicator,
+  RadioButton,
 } from 'react-native-paper';
 import { useBilling } from '../context/BillingContext';
 import { seedDatabase } from '../db/operations';
@@ -20,7 +21,7 @@ import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityI
 
 export const ProfileScreen = () => {
   const theme = useTheme() as any;
-  const { organization, updateOrgProfile, clearAllData, dbMode, exportData, importData, isLoading } = useBilling();
+  const { organization, updateOrgProfile, clearAllData, clearInvoicesOnly, dbMode, exportData, importData, isLoading } = useBilling();
 
   // Form states
   const [name, setName] = useState('');
@@ -39,6 +40,10 @@ export const ProfileScreen = () => {
   const [importDialogVisible, setImportDialogVisible] = useState(false);
   const [exportJson, setExportJson] = useState('');
   const [importJson, setImportJson] = useState('');
+
+  // Wipe Data states
+  const [wipeDialogVisible, setWipeDialogVisible] = useState(false);
+  const [wipeOption, setWipeOption] = useState<'invoices' | 'all'>('invoices');
 
   // Snackbar feedback
   const [snackbarVisible, setSnackbarVisible] = useState(false);
@@ -143,21 +148,38 @@ export const ProfileScreen = () => {
   };
 
   const handleResetData = () => {
+    setWipeOption('invoices');
+    setWipeDialogVisible(true);
+  };
+
+  const handleWipeProceed = () => {
+    setWipeDialogVisible(false);
+    const isAll = wipeOption === 'all';
+    const title = isAll ? 'Wipe All Data' : 'Delete Invoice History';
+    const message = isAll
+      ? 'This will permanently delete ALL invoices, items, products, and customers, and reset your store profile. This cannot be undone. Are you sure?'
+      : 'This will permanently delete ALL invoice transactions. Your products, customers, and store profile settings will remain intact. This cannot be undone. Are you sure?';
+
     Alert.alert(
-      'Wipe Database',
-      'This will permanently delete ALL invoices, items, customers, and products, and clear your store profile details. Are you sure?',
+      title,
+      message,
       [
         { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Wipe All Data',
+          text: 'Proceed Wiping',
           style: 'destructive',
           onPress: async () => {
             try {
-              await clearAllData();
-              setSnackbarMessage('All database records cleared successfully!');
+              if (isAll) {
+                await clearAllData();
+                setSnackbarMessage('All database records cleared successfully!');
+              } else {
+                await clearInvoicesOnly();
+                setSnackbarMessage('All invoice records deleted successfully!');
+              }
               setSnackbarVisible(true);
             } catch (e) {
-              Alert.alert('Error', 'Failed to wipe local database.');
+              Alert.alert('Error', 'Failed to wipe requested data.');
             }
           },
         },
@@ -350,10 +372,17 @@ export const ProfileScreen = () => {
         style={[styles.resetBtn, { borderColor: theme.colors.error, marginTop: 8 }]}
         onPress={handleResetData}
       >
-        Wipe All Database Records
+        Wipe Database Records
       </Button>
 
-      <View style={{ height: 40 }} />
+      {/* Developer Attribution Footer */}
+      <View style={styles.footerContainer}>
+        <Text variant="labelMedium" style={styles.footerText}>
+          App Developed by Sushant Lokhande
+        </Text>
+      </View>
+
+      <View style={{ height: 20 }} />
 
       <Snackbar
         visible={snackbarVisible}
@@ -418,6 +447,53 @@ export const ProfileScreen = () => {
             </Button>
             <Button onPress={handleImportSubmit} icon="import" mode="contained">
               Restore Data
+            </Button>
+          </Dialog.Actions>
+        </Dialog>
+      </Portal>
+
+      {/* Wipe Data Dialog */}
+      <Portal>
+        <Dialog visible={wipeDialogVisible} onDismiss={() => setWipeDialogVisible(false)} style={styles.dialog}>
+          <Dialog.Title style={{ color: theme.colors.error }}>Wipe Data Options</Dialog.Title>
+          <Dialog.Content style={{ gap: 8 }}>
+            <Text variant="bodyMedium" style={{ marginBottom: 12 }}>
+              Select which records to wipe from your device:
+            </Text>
+            
+            <RadioButton.Group onValueChange={(value) => setWipeOption(value as 'invoices' | 'all')} value={wipeOption}>
+              <View style={styles.radioRow}>
+                <RadioButton value="invoices" color={theme.colors.error} />
+                <View style={{ flex: 1, marginLeft: 8 }}>
+                  <Text variant="labelLarge" style={styles.boldText}>Only Invoices</Text>
+                  <Text variant="bodySmall" style={{ color: theme.colors.outline }}>
+                    Delete billing invoice and transaction history. Organization settings, products, and customers catalog are kept.
+                  </Text>
+                </View>
+              </View>
+
+              <Divider style={{ marginVertical: 12 }} />
+
+              <View style={styles.radioRow}>
+                <RadioButton value="all" color={theme.colors.error} />
+                <View style={{ flex: 1, marginLeft: 8 }}>
+                  <Text variant="labelLarge" style={styles.boldText}>All (Wipe All Data)</Text>
+                  <Text variant="bodySmall" style={{ color: theme.colors.outline }}>
+                    Completely resets the application databases. Deletes invoices, products inventory, customer accounts, and settings.
+                  </Text>
+                </View>
+              </View>
+            </RadioButton.Group>
+          </Dialog.Content>
+          <Dialog.Actions>
+            <Button onPress={() => setWipeDialogVisible(false)}>Cancel</Button>
+            <Button 
+              onPress={handleWipeProceed} 
+              textColor={theme.colors.error} 
+              mode="contained-tonal"
+              style={{ borderRadius: 8 }}
+            >
+              Wipe Data
             </Button>
           </Dialog.Actions>
         </Dialog>
@@ -510,5 +586,21 @@ const styles = StyleSheet.create({
   loadingContent: {
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  radioRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: 4,
+  },
+  footerContainer: {
+    paddingVertical: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  footerText: {
+    color: '#999999',
+    fontSize: 12,
+    fontWeight: '500',
+    letterSpacing: 0.5,
   },
 });

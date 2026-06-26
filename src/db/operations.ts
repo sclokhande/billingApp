@@ -558,3 +558,16 @@ export const importDatabaseData = async (jsonStr: string): Promise<void> => {
     await AsyncStorage.setItem(ASYNC_KEYS.INVOICE_ITEMS, JSON.stringify(backup.invoiceItems || []));
   }
 };
+
+export const clearInvoicesOnly = async (): Promise<void> => {
+  const mode = getDBMode();
+  if (mode === 'SQLITE') {
+    await executeQuery('DELETE FROM invoices');
+    await executeQuery('DELETE FROM invoice_items');
+  } else {
+    memoryDb.invoices = [];
+    memoryDb.invoiceItems = [];
+    await AsyncStorage.setItem(ASYNC_KEYS.INVOICES, JSON.stringify([]));
+    await AsyncStorage.setItem(ASYNC_KEYS.INVOICE_ITEMS, JSON.stringify([]));
+  }
+};
