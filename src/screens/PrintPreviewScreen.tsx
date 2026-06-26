@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { StyleSheet, View, ScrollView, Alert, Platform, Share, useWindowDimensions } from 'react-native';
 import { Text, Button, Card, Portal, Dialog, ActivityIndicator, useTheme } from 'react-native-paper';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { getInvoiceById, getInvoiceItems } from '../db/operations';
 import { formatThermalReceipt } from '../services/printService';
 import { useBilling } from '../context/BillingContext';
@@ -11,6 +12,7 @@ export const PrintPreviewScreen = ({ route, navigation }: any) => {
   const theme = useTheme() as any;
   const { organization, customers } = useBilling();
   const { width: screenWidth } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
 
   const [invoice, setInvoice] = useState<any>(null);
   const [items, setItems] = useState<InvoiceItem[]>([]);
@@ -114,7 +116,17 @@ export const PrintPreviewScreen = ({ route, navigation }: any) => {
       </ScrollView>
 
       {/* Control bar */}
-      <View style={[styles.controlBar, { backgroundColor: theme.colors.surface }]}>
+      <View
+        style={[
+          styles.controlBar,
+          {
+            backgroundColor: theme.colors.surface,
+            paddingBottom: Platform.OS === 'ios'
+              ? (insets.bottom > 0 ? insets.bottom + 8 : 16)
+              : Math.max(insets.bottom + 8, 16),
+          },
+        ]}
+      >
         <Button
           mode="outlined"
           style={styles.controlBtn}
