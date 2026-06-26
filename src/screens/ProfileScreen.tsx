@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { StyleSheet, View, ScrollView, Alert, Share } from 'react-native';
+import { StyleSheet, View, ScrollView, Alert, Share, useWindowDimensions } from 'react-native';
 import {
   Text,
   TextInput,
@@ -22,6 +22,7 @@ import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityI
 export const ProfileScreen = () => {
   const theme = useTheme() as any;
   const { organization, updateOrgProfile, clearAllData, clearInvoicesOnly, dbMode, exportData, importData, isLoading } = useBilling();
+  const { width } = useWindowDimensions();
 
   // Form states
   const [name, setName] = useState('');
@@ -189,7 +190,8 @@ export const ProfileScreen = () => {
 
   return (
     <ScrollView style={[styles.container, { backgroundColor: theme.colors.background }]}>
-      <Card style={styles.card} mode="outlined">
+      <View style={{ width: '100%', maxWidth: 650, alignSelf: 'center' }}>
+        <Card style={styles.card} mode="outlined">
         <Card.Content style={{ gap: 12 }}>
           <Text variant="titleMedium" style={styles.boldText}>
             Organization Details
@@ -382,7 +384,7 @@ export const ProfileScreen = () => {
         </Text>
       </View>
 
-      <View style={{ height: 20 }} />
+      </View>
 
       <Snackbar
         visible={snackbarVisible}

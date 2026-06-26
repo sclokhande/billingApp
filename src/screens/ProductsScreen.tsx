@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { StyleSheet, View, FlatList, Alert, ScrollView } from 'react-native';
+import { StyleSheet, View, FlatList, Alert, ScrollView, useWindowDimensions } from 'react-native';
 import {
   Text,
   Card,
@@ -27,6 +27,9 @@ const UNIT_PRESETS = [
 export const ProductsScreen = () => {
   const theme = useTheme();
   const { products, saveProduct, deleteProduct, organization, isLoading } = useBilling();
+  const { width } = useWindowDimensions();
+
+  const numColumns = width > 600 ? 2 : 1;
 
   // Search filter
   const [searchQuery, setSearchQuery] = useState('');
@@ -129,61 +132,65 @@ export const ProductsScreen = () => {
 
   return (
     <View style={styles.container}>
-      {/* Search Input */}
-      <TextInput
-        placeholder="Search products..."
-        value={searchQuery}
-        onChangeText={setSearchQuery}
-        mode="outlined"
-        dense
-        style={styles.searchBar}
-        left={<TextInput.Icon icon="magnify" />}
-        right={searchQuery ? <TextInput.Icon icon="close" onPress={() => setSearchQuery('')} /> : null}
-      />
-
-      {/* Product List */}
-      {filteredProducts.length === 0 ? (
-        <View style={styles.emptyContainer}>
-          <Text style={{ color: theme.colors.onSurfaceVariant }}>
-            {searchQuery ? 'No products matches your search.' : 'No products in inventory.'}
-          </Text>
-        </View>
-      ) : (
-        <FlatList
-          data={filteredProducts}
-          keyExtractor={(item) => item.id}
-          contentContainerStyle={{ padding: 16, paddingBottom: 88 }}
-          renderItem={({ item }) => (
-            <Card style={styles.card} mode="outlined">
-              <Card.Content style={styles.cardContent}>
-                <View style={{ flex: 1, marginRight: 16 }}>
-                  <Text variant="titleMedium" style={styles.boldText}>
-                    {item.name}
-                  </Text>
-                  {item.description ? (
-                    <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant, marginVertical: 4 }} numberOfLines={2}>
-                      {item.description}
-                    </Text>
-                  ) : null}
-                  <Text variant="bodyMedium" style={{ fontWeight: '500', color: theme.colors.primary }}>
-                    Price: {organization.currency} {item.price.toFixed(2)}
-                  </Text>
-                  <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
-                    GST Tax: {item.taxRate}%
-                  </Text>
-                </View>
-                <View style={styles.cardActions}>
-                  <IconButton icon="pencil-outline" size={20} onPress={() => openEditDialog(item)} />
-                  <IconButton icon="trash-can-outline" size={20} iconColor={theme.colors.error} onPress={() => handleDelete(item.id)} />
-                </View>
-              </Card.Content>
-            </Card>
-          )}
+      <View style={{ flex: 1, width: '100%', maxWidth: 900, alignSelf: 'center' }}>
+        {/* Search Input */}
+        <TextInput
+          placeholder="Search products..."
+          value={searchQuery}
+          onChangeText={setSearchQuery}
+          mode="outlined"
+          dense
+          style={styles.searchBar}
+          left={<TextInput.Icon icon="magnify" />}
+          right={searchQuery ? <TextInput.Icon icon="close" onPress={() => setSearchQuery('')} /> : null}
         />
-      )}
 
-      {/* Floating Action Button */}
-      <FAB icon="plus" style={[styles.fab, { backgroundColor: theme.colors.primary }]} color="#FFF" onPress={openAddDialog} />
+        {/* Product List */}
+        {filteredProducts.length === 0 ? (
+          <View style={styles.emptyContainer}>
+            <Text style={{ color: theme.colors.onSurfaceVariant }}>
+              {searchQuery ? 'No products matches your search.' : 'No products in inventory.'}
+            </Text>
+          </View>
+        ) : (
+          <FlatList
+            key={numColumns}
+            numColumns={numColumns}
+            data={filteredProducts}
+            keyExtractor={(item) => item.id}
+            contentContainerStyle={{ padding: 16, paddingBottom: 88 }}
+            renderItem={({ item }) => (
+              <Card style={[styles.card, { flex: 1, marginHorizontal: numColumns > 1 ? 6 : 0 }]} mode="outlined">
+                <Card.Content style={styles.cardContent}>
+                  <View style={{ flex: 1, marginRight: 8 }}>
+                    <Text variant="titleMedium" style={styles.boldText} numberOfLines={1}>
+                      {item.name}
+                    </Text>
+                    {item.description ? (
+                      <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant, marginVertical: 4 }} numberOfLines={2}>
+                        {item.description}
+                      </Text>
+                    ) : null}
+                    <Text variant="bodyMedium" style={{ fontWeight: '500', color: theme.colors.primary }}>
+                      Price: {organization.currency} {item.price.toFixed(2)}
+                    </Text>
+                    <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
+                      GST Tax: {item.taxRate}%
+                    </Text>
+                  </View>
+                  <View style={styles.cardActions}>
+                    <IconButton icon="pencil-outline" size={20} onPress={() => openEditDialog(item)} />
+                    <IconButton icon="trash-can-outline" size={20} iconColor={theme.colors.error} onPress={() => handleDelete(item.id)} />
+                  </View>
+                </Card.Content>
+              </Card>
+            )}
+          />
+        )}
+
+        {/* Floating Action Button */}
+        <FAB icon="plus" style={[styles.fab, { backgroundColor: theme.colors.primary }]} color="#FFF" onPress={openAddDialog} />
+      </View>
 
       {/* Add/Edit Product Dialog */}
       <Portal>

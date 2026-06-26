@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { StyleSheet, View, ScrollView, FlatList, Alert } from 'react-native';
+import { StyleSheet, View, ScrollView, FlatList, Alert, useWindowDimensions } from 'react-native';
 import {
   Text,
   TextInput,
@@ -266,10 +266,13 @@ export const InvoiceBuilderScreen = ({ navigation }: any) => {
     }
   };
 
+  const { width } = useWindowDimensions();
+
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 16 }}>
-        {/* Customer Selection Card */}
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: width > 700 ? 24 : 16 }}>
+        <View style={{ width: '100%', maxWidth: 700, alignSelf: 'center' }}>
+          {/* Customer Selection Card */}
         <Card style={styles.card} mode="outlined">
           <Card.Content style={styles.customerSelector}>
             <View style={{ flex: 1 }}>
@@ -414,7 +417,7 @@ export const InvoiceBuilderScreen = ({ navigation }: any) => {
             {/* Calculations Breakdown */}
             <View style={styles.calcRow}>
               <Text variant="bodyLarge">Subtotal</Text>
-              <Text variant="bodyLarge">{organization.currency} {subtotal.toFixed(2)}</Text>
+              <Text variant="bodyLarge" numberOfLines={1} adjustsFontSizeToFit>{organization.currency} {subtotal.toFixed(2)}</Text>
             </View>
 
             {organization.showGstOnBill && organization.gstNumber && totalTax > 0 ? (
@@ -423,7 +426,7 @@ export const InvoiceBuilderScreen = ({ navigation }: any) => {
                   <Text variant="bodyMedium" style={{ color: theme.colors.onSurfaceVariant }}>
                     CGST (Central GST)
                   </Text>
-                  <Text variant="bodyMedium" style={{ color: theme.colors.onSurfaceVariant }}>
+                  <Text variant="bodyMedium" style={{ color: theme.colors.onSurfaceVariant }} numberOfLines={1} adjustsFontSizeToFit>
                     {organization.currency} {cgst.toFixed(2)}
                   </Text>
                 </View>
@@ -431,7 +434,7 @@ export const InvoiceBuilderScreen = ({ navigation }: any) => {
                   <Text variant="bodyMedium" style={{ color: theme.colors.onSurfaceVariant }}>
                     SGST (State GST)
                   </Text>
-                  <Text variant="bodyMedium" style={{ color: theme.colors.onSurfaceVariant }}>
+                  <Text variant="bodyMedium" style={{ color: theme.colors.onSurfaceVariant }} numberOfLines={1} adjustsFontSizeToFit>
                     {organization.currency} {sgst.toFixed(2)}
                   </Text>
                 </View>
@@ -441,7 +444,7 @@ export const InvoiceBuilderScreen = ({ navigation }: any) => {
             {discountVal > 0 ? (
               <View style={styles.calcRow}>
                 <Text variant="bodyMedium" style={{ color: theme.colors.error }}>Discount</Text>
-                <Text variant="bodyMedium" style={{ color: theme.colors.error }}>
+                <Text variant="bodyMedium" style={{ color: theme.colors.error }} numberOfLines={1} adjustsFontSizeToFit>
                   -{organization.currency} {discountVal.toFixed(2)}
                 </Text>
               </View>
@@ -451,7 +454,7 @@ export const InvoiceBuilderScreen = ({ navigation }: any) => {
 
             <View style={styles.calcRow}>
               <Text variant="titleLarge" style={styles.boldText}>Grand Total</Text>
-              <Text variant="titleLarge" style={[styles.boldText, { color: theme.colors.primary }]}>
+              <Text variant="titleLarge" style={[styles.boldText, { color: theme.colors.primary }]} numberOfLines={1} adjustsFontSizeToFit>
                 {organization.currency} {grandTotal.toFixed(2)}
               </Text>
             </View>
@@ -516,6 +519,7 @@ export const InvoiceBuilderScreen = ({ navigation }: any) => {
           Generate Invoice & Preview
         </Button>
         <View style={{ height: 40 }} />
+        </View>
       </ScrollView>
 
       {/* PORTALS FOR DIALOG SELECTORS */}

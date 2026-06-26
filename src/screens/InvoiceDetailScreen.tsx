@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { StyleSheet, View, ScrollView, Alert } from 'react-native';
+import { StyleSheet, View, ScrollView, Alert, useWindowDimensions } from 'react-native';
 import { Text, Card, Button, Divider, ActivityIndicator, useTheme } from 'react-native-paper';
 import { useBilling } from '../context/BillingContext';
 import { getInvoiceById, getInvoiceItems } from '../db/operations';
@@ -78,9 +78,12 @@ export const InvoiceDetailScreen = ({ route, navigation }: any) => {
     minute: '2-digit',
   });
 
+  const { width } = useWindowDimensions();
+
   return (
     <ScrollView style={[styles.container, { backgroundColor: theme.colors.background }]}>
-      <Card style={styles.card} mode="outlined">
+      <View style={{ width: '100%', maxWidth: 650, alignSelf: 'center', padding: width > 650 ? 8 : 0 }}>
+        <Card style={styles.card} mode="outlined">
         <Card.Content>
           {/* Header Row */}
           <View style={styles.headerRow}>
@@ -168,7 +171,7 @@ export const InvoiceDetailScreen = ({ route, navigation }: any) => {
           {/* Calculations */}
           <View style={styles.calcRow}>
             <Text variant="bodyMedium">Subtotal</Text>
-            <Text variant="bodyMedium">{organization.currency}{invoice.subtotal.toFixed(2)}</Text>
+            <Text variant="bodyMedium" numberOfLines={1} adjustsFontSizeToFit>{organization.currency}{invoice.subtotal.toFixed(2)}</Text>
           </View>
 
           {organization.showGstOnBill && invoice.taxTotal > 0 && (
@@ -177,7 +180,7 @@ export const InvoiceDetailScreen = ({ route, navigation }: any) => {
                 <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
                   CGST (Central GST)
                 </Text>
-                <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
+                <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }} numberOfLines={1} adjustsFontSizeToFit>
                   {organization.currency}{invoice.cgstTotal.toFixed(2)}
                 </Text>
               </View>
@@ -185,7 +188,7 @@ export const InvoiceDetailScreen = ({ route, navigation }: any) => {
                 <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
                   SGST (State GST)
                 </Text>
-                <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
+                <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }} numberOfLines={1} adjustsFontSizeToFit>
                   {organization.currency}{invoice.sgstTotal.toFixed(2)}
                 </Text>
               </View>
@@ -195,7 +198,7 @@ export const InvoiceDetailScreen = ({ route, navigation }: any) => {
           {invoice.discount > 0 && (
             <View style={styles.calcRow}>
               <Text variant="bodyMedium" style={{ color: theme.colors.error }}>Discount</Text>
-              <Text variant="bodyMedium" style={{ color: theme.colors.error }}>
+              <Text variant="bodyMedium" style={{ color: theme.colors.error }} numberOfLines={1} adjustsFontSizeToFit>
                 -{organization.currency}{invoice.discount.toFixed(2)}
               </Text>
             </View>
@@ -205,7 +208,7 @@ export const InvoiceDetailScreen = ({ route, navigation }: any) => {
 
           <View style={styles.calcRow}>
             <Text variant="titleLarge" style={styles.boldText}>Grand Total</Text>
-            <Text variant="titleLarge" style={[styles.boldText, { color: theme.colors.primary }]}>
+            <Text variant="titleLarge" style={[styles.boldText, { color: theme.colors.primary }]} numberOfLines={1} adjustsFontSizeToFit>
               {organization.currency}{invoice.grandTotal.toFixed(2)}
             </Text>
           </View>
@@ -231,6 +234,7 @@ export const InvoiceDetailScreen = ({ route, navigation }: any) => {
         >
           Delete Invoice
         </Button>
+      </View>
       </View>
       <View style={{ height: 40 }} />
     </ScrollView>

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { StyleSheet, View, ScrollView, Alert, Platform, Share } from 'react-native';
+import { StyleSheet, View, ScrollView, Alert, Platform, Share, useWindowDimensions } from 'react-native';
 import { Text, Button, Card, Portal, Dialog, ActivityIndicator, useTheme } from 'react-native-paper';
 import { getInvoiceById, getInvoiceItems } from '../db/operations';
 import { formatThermalReceipt } from '../services/printService';
@@ -10,6 +10,7 @@ export const PrintPreviewScreen = ({ route, navigation }: any) => {
   const { invoiceId } = route.params;
   const theme = useTheme() as any;
   const { organization, customers } = useBilling();
+  const { width: screenWidth } = useWindowDimensions();
 
   const [invoice, setInvoice] = useState<any>(null);
   const [items, setItems] = useState<InvoiceItem[]>([]);
@@ -81,9 +82,19 @@ export const PrintPreviewScreen = ({ route, navigation }: any) => {
   }
 
   const is80mm = organization.printWidth === '80mm';
-  const fontSize = is80mm ? 10 : 12.5;
-  const charWidth = fontSize * 0.62; // Monospaced font aspect ratio with safety padding
-  const paperWidth = charWidth * (is80mm ? 48 : 32) + 24; // text width + horizontal padding (12 * 2)
+  const maxPaperWidth = screenWidth - 32; // 16dp padding on both sides
+  
+  let fontSize = is80mm ? 10 : 12.5;
+  let charWidth = fontSize * 0.62; // Monospaced font aspect ratio with safety padding
+  let paperWidth = charWidth * (is80mm ? 48 : 32) + 24; // text width + horizontal padding (12 * 2)
+
+  // Scale down receipt preview if it's wider than the screen
+  if (paperWidth > maxPaperWidth) {
+    const scaleFactor = maxPaperWidth / paperWidth;
+    fontSize = fontSize * scaleFactor;
+    charWidth = charWidth * scaleFactor;
+    paperWidth = charWidth * (is80mm ? 48 : 32) + 24;
+  }
 
   return (
     <View style={[styles.container, { backgroundColor: '#333333' }]}>

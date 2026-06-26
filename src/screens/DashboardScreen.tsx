@@ -1,5 +1,5 @@
 import React from 'react';
-import { StyleSheet, View, ScrollView, FlatList, TouchableOpacity } from 'react-native';
+import { StyleSheet, View, ScrollView, FlatList, TouchableOpacity, useWindowDimensions } from 'react-native';
 import { Text, Card, Button, useTheme, Chip, Divider, Avatar } from 'react-native-paper';
 import { useBilling } from '../context/BillingContext';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
@@ -7,6 +7,9 @@ import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityI
 export const DashboardScreen = ({ navigation }: any) => {
   const theme = useTheme() as any;
   const { invoices, organization, dbMode } = useBilling();
+  const { width } = useWindowDimensions();
+
+  const isSmallScreen = width < 360;
 
   // Calculations
   const totalInvoices = invoices.length;
@@ -33,15 +36,15 @@ export const DashboardScreen = ({ navigation }: any) => {
         <Card style={styles.invoiceCard} mode="outlined">
           <Card.Content style={styles.invoiceCardContent}>
             <View style={styles.invoiceHeader}>
-              <View>
-                <Text variant="titleMedium" style={styles.boldText}>
+              <View style={{ flex: 1, marginRight: 8 }}>
+                <Text variant="titleMedium" style={styles.boldText} numberOfLines={1}>
                   {item.invoiceNumber}
                 </Text>
                 <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
                   {invoiceDate} • {item.paymentMethod}
                 </Text>
               </View>
-              <Text variant="titleMedium" style={[styles.boldText, { color: theme.colors.primary }]}>
+              <Text variant="titleMedium" style={[styles.boldText, { color: theme.colors.primary }]} numberOfLines={1} adjustsFontSizeToFit>
                 {organization.currency} {item.grandTotal.toFixed(2)}
               </Text>
             </View>
@@ -81,60 +84,73 @@ export const DashboardScreen = ({ navigation }: any) => {
 
   return (
     <ScrollView style={[styles.container, { backgroundColor: theme.colors.background }]}>
-
-
-
-      {/* Metrics Section */}
-      <View style={styles.metricsContainer}>
-        <Card style={[styles.mainMetricCard, { backgroundColor: theme.colors.primaryContainer }]}>
-          <Card.Content style={styles.mainMetricContent}>
-            <Avatar.Icon
-              size={44}
-              icon="cash-multiple"
-              style={{ backgroundColor: theme.colors.primary }}
-              color={theme.colors.onPrimary}
-            />
-            <View style={{ marginLeft: 16, flex: 1 }}>
-              <Text variant="bodyMedium" style={{ color: theme.colors.onPrimaryContainer }}>
-                Total Sales Revenue
-              </Text>
-              <Text variant="headlineMedium" style={[styles.boldText, { color: theme.colors.onPrimaryContainer }]}>
-                {organization.currency} {totalSales.toFixed(2)}
-              </Text>
-            </View>
-          </Card.Content>
-        </Card>
-
-        <View style={styles.splitMetrics}>
-          <Card style={[styles.subMetricCard, { flex: 1 }]}>
-            <Card.Content>
-              <View style={styles.row}>
-                <MaterialCommunityIcons name="check-circle" color={theme.colors.success} size={20} />
-                <Text variant="bodySmall" style={{ marginLeft: 6, color: theme.colors.onSurfaceVariant }}>
-                  Collected
+      <View style={{ width: '100%', maxWidth: 750, alignSelf: 'center', paddingHorizontal: width > 750 ? 16 : 0 }}>
+        {/* Metrics Section */}
+        <View style={styles.metricsContainer}>
+          <Card style={[styles.mainMetricCard, { backgroundColor: theme.colors.primaryContainer }]}>
+            <Card.Content style={styles.mainMetricContent}>
+              <Avatar.Icon
+                size={44}
+                icon="cash-multiple"
+                style={{ backgroundColor: theme.colors.primary }}
+                color={theme.colors.onPrimary}
+              />
+              <View style={{ marginLeft: 16, flex: 1 }}>
+                <Text variant="bodyMedium" style={{ color: theme.colors.onPrimaryContainer }}>
+                  Total Sales Revenue
+                </Text>
+                <Text
+                  variant="headlineMedium"
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  style={[styles.boldText, { color: theme.colors.onPrimaryContainer }]}
+                >
+                  {organization.currency} {totalSales.toFixed(2)}
                 </Text>
               </View>
-              <Text variant="titleLarge" style={[styles.boldText, { color: theme.colors.success, marginTop: 8 }]}>
-                {organization.currency} {collectedAmount.toFixed(2)}
-              </Text>
             </Card.Content>
           </Card>
 
-          <Card style={[styles.subMetricCard, { flex: 1, marginLeft: 12 }]}>
-            <Card.Content>
-              <View style={styles.row}>
-                <MaterialCommunityIcons name="clock-outline" color={theme.colors.warning} size={20} />
-                <Text variant="bodySmall" style={{ marginLeft: 6, color: theme.colors.onSurfaceVariant }}>
-                  Outstanding
+          <View style={[styles.splitMetrics, { flexDirection: isSmallScreen ? 'column' : 'row' }]}>
+            <Card style={[styles.subMetricCard, { flex: isSmallScreen ? undefined : 1, marginBottom: isSmallScreen ? 12 : 0 }]}>
+              <Card.Content>
+                <View style={styles.row}>
+                  <MaterialCommunityIcons name="check-circle" color={theme.colors.success} size={20} />
+                  <Text variant="bodySmall" style={{ marginLeft: 6, color: theme.colors.onSurfaceVariant }}>
+                    Collected
+                  </Text>
+                </View>
+                <Text
+                  variant="titleLarge"
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  style={[styles.boldText, { color: theme.colors.success, marginTop: 8 }]}
+                >
+                  {organization.currency} {collectedAmount.toFixed(2)}
                 </Text>
-              </View>
-              <Text variant="titleLarge" style={[styles.boldText, { color: theme.colors.warning, marginTop: 8 }]}>
-                {organization.currency} {pendingAmount.toFixed(2)}
-              </Text>
-            </Card.Content>
-          </Card>
+              </Card.Content>
+            </Card>
+
+            <Card style={[styles.subMetricCard, { flex: isSmallScreen ? undefined : 1, marginLeft: isSmallScreen ? 0 : 12 }]}>
+              <Card.Content>
+                <View style={styles.row}>
+                  <MaterialCommunityIcons name="clock-outline" color={theme.colors.warning} size={20} />
+                  <Text variant="bodySmall" style={{ marginLeft: 6, color: theme.colors.onSurfaceVariant }}>
+                    Outstanding
+                  </Text>
+                </View>
+                <Text
+                  variant="titleLarge"
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  style={[styles.boldText, { color: theme.colors.warning, marginTop: 8 }]}
+                >
+                  {organization.currency} {pendingAmount.toFixed(2)}
+                </Text>
+              </Card.Content>
+            </Card>
+          </View>
         </View>
-      </View>
 
       {/* Quick Actions */}
       <View style={styles.actionsContainer}>
@@ -214,9 +230,10 @@ export const DashboardScreen = ({ navigation }: any) => {
           App Developed by Sushant Lokhande
         </Text>
       </View>
+    </View>
 
-      <View style={{ height: 20 }} />
-    </ScrollView>
+    <View style={{ height: 20 }} />
+  </ScrollView>
   );
 };
 
