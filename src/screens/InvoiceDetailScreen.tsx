@@ -8,7 +8,7 @@ import { InvoiceItem } from '../db/types';
 export const InvoiceDetailScreen = ({ route, navigation }: any) => {
   const { invoiceId } = route.params;
   const theme = useTheme() as any;
-  const { organization, deleteInvoice } = useBilling();
+  const { organization, deleteInvoice, updateInvoicePaymentStatus } = useBilling();
   const { width } = useWindowDimensions();
 
   const [invoice, setInvoice] = useState<any>(null);
@@ -48,6 +48,27 @@ export const InvoiceDetailScreen = ({ route, navigation }: any) => {
               navigation.goBack();
             } catch (e) {
               Alert.alert('Error', 'Failed to delete invoice.');
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const handleMarkAsPaid = () => {
+    Alert.alert(
+      'Mark as Paid',
+      'Are you sure you want to update this invoice status to Paid?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Yes, Paid',
+          onPress: async () => {
+            try {
+              await updateInvoicePaymentStatus(invoiceId, 'Paid');
+              await fetchDetails();
+            } catch (e) {
+              Alert.alert('Error', 'Failed to update payment status.');
             }
           },
         },
@@ -216,6 +237,18 @@ export const InvoiceDetailScreen = ({ route, navigation }: any) => {
 
       {/* Buttons */}
       <View style={styles.actions}>
+        {invoice.paymentStatus === 'Unpaid' && (
+          <Button
+            mode="contained"
+            icon="cash-check"
+            buttonColor={theme.colors.success}
+            textColor="#FFF"
+            onPress={handleMarkAsPaid}
+            style={styles.btn}
+          >
+            Mark as Paid
+          </Button>
+        )}
         <Button
           mode="contained"
           icon="printer"

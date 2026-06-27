@@ -571,3 +571,17 @@ export const clearInvoicesOnly = async (): Promise<void> => {
     await AsyncStorage.setItem(ASYNC_KEYS.INVOICE_ITEMS, JSON.stringify([]));
   }
 };
+
+export const updateInvoicePaymentStatus = async (id: string, status: 'Paid' | 'Unpaid'): Promise<void> => {
+  const mode = getDBMode();
+  if (mode === 'SQLITE') {
+    await executeQuery('UPDATE invoices SET paymentStatus = ? WHERE id = ?', [status, id]);
+  } else {
+    const index = memoryDb.invoices.findIndex((inv) => inv.id === id);
+    if (index >= 0) {
+      memoryDb.invoices[index].paymentStatus = status;
+      await AsyncStorage.setItem(ASYNC_KEYS.INVOICES, JSON.stringify(memoryDb.invoices));
+    }
+  }
+};
+
