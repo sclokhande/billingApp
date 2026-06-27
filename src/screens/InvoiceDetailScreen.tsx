@@ -9,6 +9,7 @@ export const InvoiceDetailScreen = ({ route, navigation }: any) => {
   const { invoiceId } = route.params;
   const theme = useTheme() as any;
   const { organization, deleteInvoice } = useBilling();
+  const { width } = useWindowDimensions();
 
   const [invoice, setInvoice] = useState<any>(null);
   const [items, setItems] = useState<InvoiceItem[]>([]);
@@ -77,8 +78,6 @@ export const InvoiceDetailScreen = ({ route, navigation }: any) => {
     hour: '2-digit',
     minute: '2-digit',
   });
-
-  const { width } = useWindowDimensions();
 
   return (
     <ScrollView style={[styles.container, { backgroundColor: theme.colors.background }]}>
