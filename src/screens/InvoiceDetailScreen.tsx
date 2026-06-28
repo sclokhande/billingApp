@@ -104,169 +104,169 @@ export const InvoiceDetailScreen = ({ route, navigation }: any) => {
     <ScrollView style={[styles.container, { backgroundColor: theme.colors.background }]}>
       <View style={{ width: '100%', maxWidth: 650, alignSelf: 'center', padding: width > 650 ? 8 : 0 }}>
         <Card style={styles.card} mode="outlined">
-        <Card.Content>
-          {/* Header Row */}
-          <View style={styles.headerRow}>
-            <View>
-              <Text variant="headlineSmall" style={styles.boldText}>
-                {invoice.invoiceNumber}
-              </Text>
-              <Text variant="bodyMedium" style={{ color: theme.colors.onSurfaceVariant }}>
-                {invoiceDate}
-              </Text>
-            </View>
-            <View style={[styles.badge, { backgroundColor: invoice.paymentStatus === 'Paid' ? theme.colors.success + '20' : theme.colors.warning + '20' }]}>
-              <Text style={[styles.badgeText, { color: invoice.paymentStatus === 'Paid' ? theme.colors.success : theme.colors.warning }]}>
-                {invoice.paymentStatus.toUpperCase()}
-              </Text>
-            </View>
-          </View>
-
-          <Divider style={styles.divider} />
-
-          {/* Org & Customer Details */}
-          <View style={styles.metaRow}>
-            <View style={{ flex: 1 }}>
-              <Text variant="titleSmall" style={{ color: theme.colors.onSurfaceVariant }}>
-                BILLED BY
-              </Text>
-              <Text variant="bodyLarge" style={styles.boldText}>
-                {organization.name}
-              </Text>
-              {organization.gstNumber && organization.showGstOnBill && (
-                <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
-                  GSTIN: {organization.gstNumber}
+          <Card.Content>
+            {/* Header Row */}
+            <View style={styles.headerRow}>
+              <View>
+                <Text variant="headlineSmall" style={styles.boldText}>
+                  {invoice.invoiceNumber}
                 </Text>
-              )}
-            </View>
-
-            <View style={{ flex: 1, alignItems: 'flex-end' }}>
-              <Text variant="titleSmall" style={{ color: theme.colors.onSurfaceVariant }}>
-                BILLED TO
-              </Text>
-              <Text variant="bodyLarge" style={styles.boldText}>
-                {invoice.customerName || 'Walk-in Customer'}
-              </Text>
-              {invoice.customerPhone && invoice.customerPhone !== '0000000000' && (
-                <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
-                  {invoice.customerPhone}
-                </Text>
-              )}
-            </View>
-          </View>
-
-          <Divider style={styles.divider} />
-
-          {/* Items Header */}
-          <View style={[styles.row, { marginBottom: 8 }]}>
-            <Text variant="titleMedium" style={styles.boldText}>Items List</Text>
-          </View>
-
-          {/* Items Map */}
-          {items.map((item, index) => (
-            <View key={item.id || index} style={styles.itemRow}>
-              <View style={{ flex: 2 }}>
-                <Text variant="bodyLarge" style={styles.boldText}>
-                  {item.name}
-                </Text>
-                <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
-                  {item.quantity} {item.unit || 'Pcs'} @ {organization.currency}{item.price.toFixed(2)}
+                <Text variant="bodyMedium" style={{ color: theme.colors.onSurfaceVariant }}>
+                  {invoiceDate}
                 </Text>
               </View>
-              <View style={{ flex: 1, alignItems: 'flex-end' }}>
-                <Text variant="bodyLarge" style={styles.boldText}>
-                  {organization.currency}{(item.price * item.quantity).toFixed(2)}
+              <View style={[styles.badge, { backgroundColor: invoice.paymentStatus === 'Paid' ? theme.colors.success + '20' : theme.colors.warning + '20' }]}>
+                <Text style={[styles.badgeText, { color: invoice.paymentStatus === 'Paid' ? theme.colors.success : theme.colors.warning }]}>
+                  {invoice.paymentStatus.toUpperCase()}
                 </Text>
-                {organization.showGstOnBill && item.taxRate > 0 && (
+              </View>
+            </View>
+
+            <Divider style={styles.divider} />
+
+            {/* Org & Customer Details */}
+            <View style={styles.metaRow}>
+              <View style={{ flex: 1 }}>
+                <Text variant="titleSmall" style={{ color: theme.colors.onSurfaceVariant }}>
+                  BILLED BY
+                </Text>
+                <Text variant="bodyLarge" style={styles.boldText}>
+                  {organization.name}
+                </Text>
+                {organization.gstNumber && organization.showGstOnBill && (
                   <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
-                    +{item.taxRate}% GST
+                    GSTIN: {organization.gstNumber}
+                  </Text>
+                )}
+              </View>
+
+              <View style={{ flex: 1, alignItems: 'flex-end' }}>
+                <Text variant="titleSmall" style={{ color: theme.colors.onSurfaceVariant }}>
+                  BILLED TO
+                </Text>
+                <Text variant="bodyLarge" style={styles.boldText}>
+                  {invoice.customerName || 'Walk-in Customer'}
+                </Text>
+                {invoice.customerPhone && invoice.customerPhone !== '0000000000' && (
+                  <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
+                    {invoice.customerPhone}
                   </Text>
                 )}
               </View>
             </View>
-          ))}
 
-          <Divider style={styles.divider} />
+            <Divider style={styles.divider} />
 
-          {/* Calculations */}
-          <View style={styles.calcRow}>
-            <Text variant="bodyMedium">Subtotal</Text>
-            <Text variant="bodyMedium" numberOfLines={1} adjustsFontSizeToFit>{organization.currency}{invoice.subtotal.toFixed(2)}</Text>
-          </View>
+            {/* Items Header */}
+            <View style={[styles.row, { marginBottom: 8 }]}>
+              <Text variant="titleMedium" style={styles.boldText}>Items List</Text>
+            </View>
 
-          {organization.showGstOnBill && invoice.taxTotal > 0 && (
-            <>
-              <View style={styles.calcRow}>
-                <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
-                  CGST (Central GST)
-                </Text>
-                <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }} numberOfLines={1} adjustsFontSizeToFit>
-                  {organization.currency}{invoice.cgstTotal.toFixed(2)}
-                </Text>
+            {/* Items Map */}
+            {items.map((item, index) => (
+              <View key={item.id || index} style={styles.itemRow}>
+                <View style={{ flex: 2 }}>
+                  <Text variant="bodyLarge" style={styles.boldText}>
+                    {item.name}
+                  </Text>
+                  <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
+                    {item.quantity} {item.unit || 'Pcs'} @ {organization.currency}{item.price.toFixed(2)}
+                  </Text>
+                </View>
+                <View style={{ flex: 1, alignItems: 'flex-end' }}>
+                  <Text variant="bodyLarge" style={styles.boldText}>
+                    {organization.currency}{(item.price * item.quantity).toFixed(2)}
+                  </Text>
+                  {organization.showGstOnBill && item.taxRate > 0 && (
+                    <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
+                      +{item.taxRate}% GST
+                    </Text>
+                  )}
+                </View>
               </View>
-              <View style={styles.calcRow}>
-                <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
-                  SGST (State GST)
-                </Text>
-                <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }} numberOfLines={1} adjustsFontSizeToFit>
-                  {organization.currency}{invoice.sgstTotal.toFixed(2)}
-                </Text>
-              </View>
-            </>
-          )}
+            ))}
 
-          {invoice.discount > 0 && (
+            <Divider style={styles.divider} />
+
+            {/* Calculations */}
             <View style={styles.calcRow}>
-              <Text variant="bodyMedium" style={{ color: theme.colors.error }}>Discount</Text>
-              <Text variant="bodyMedium" style={{ color: theme.colors.error }} numberOfLines={1} adjustsFontSizeToFit>
-                -{organization.currency}{invoice.discount.toFixed(2)}
+              <Text variant="bodyMedium">Subtotal</Text>
+              <Text variant="bodyMedium" numberOfLines={1} adjustsFontSizeToFit>{organization.currency}{invoice.subtotal.toFixed(2)}</Text>
+            </View>
+
+            {organization.showGstOnBill && invoice.taxTotal > 0 && (
+              <>
+                <View style={styles.calcRow}>
+                  <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
+                    CGST (Central GST)
+                  </Text>
+                  <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }} numberOfLines={1} adjustsFontSizeToFit>
+                    {organization.currency}{invoice.cgstTotal.toFixed(2)}
+                  </Text>
+                </View>
+                <View style={styles.calcRow}>
+                  <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
+                    SGST (State GST)
+                  </Text>
+                  <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }} numberOfLines={1} adjustsFontSizeToFit>
+                    {organization.currency}{invoice.sgstTotal.toFixed(2)}
+                  </Text>
+                </View>
+              </>
+            )}
+
+            {invoice.discount > 0 && (
+              <View style={styles.calcRow}>
+                <Text variant="bodyMedium" style={{ color: theme.colors.error }}>Discount</Text>
+                <Text variant="bodyMedium" style={{ color: theme.colors.error }} numberOfLines={1} adjustsFontSizeToFit>
+                  -{organization.currency}{invoice.discount.toFixed(2)}
+                </Text>
+              </View>
+            )}
+
+            <Divider style={styles.divider} />
+
+            <View style={styles.calcRow}>
+              <Text variant="titleLarge" style={styles.boldText}>Grand Total</Text>
+              <Text variant="titleLarge" style={[styles.boldText, { color: theme.colors.primary }]} numberOfLines={1} adjustsFontSizeToFit>
+                {organization.currency}{invoice.grandTotal.toFixed(2)}
               </Text>
             </View>
+          </Card.Content>
+        </Card>
+
+        {/* Buttons */}
+        <View style={styles.actions}>
+          {invoice.paymentStatus === 'Unpaid' && (
+            <Button
+              mode="contained"
+              icon="cash-check"
+              buttonColor={theme.colors.success}
+              textColor="#FFF"
+              onPress={handleMarkAsPaid}
+              style={styles.btn}
+            >
+              Mark as Paid
+            </Button>
           )}
-
-          <Divider style={styles.divider} />
-
-          <View style={styles.calcRow}>
-            <Text variant="titleLarge" style={styles.boldText}>Grand Total</Text>
-            <Text variant="titleLarge" style={[styles.boldText, { color: theme.colors.primary }]} numberOfLines={1} adjustsFontSizeToFit>
-              {organization.currency}{invoice.grandTotal.toFixed(2)}
-            </Text>
-          </View>
-        </Card.Content>
-      </Card>
-
-      {/* Buttons */}
-      <View style={styles.actions}>
-        {invoice.paymentStatus === 'Unpaid' && (
           <Button
             mode="contained"
-            icon="cash-check"
-            buttonColor={theme.colors.success}
-            textColor="#FFF"
-            onPress={handleMarkAsPaid}
+            icon="printer"
+            onPress={() => navigation.navigate('PrintPreview', { invoiceId })}
             style={styles.btn}
           >
-            Mark as Paid
+            Print
           </Button>
-        )}
-        <Button
-          mode="contained"
-          icon="printer"
-          onPress={() => navigation.navigate('PrintPreview', { invoiceId })}
-          style={styles.btn}
-        >
-          Print Thermal Bill
-        </Button>
-        <Button
-          mode="outlined"
-          icon="trash-can-outline"
-          textColor={theme.colors.error}
-          style={[styles.btn, { borderColor: theme.colors.error }]}
-          onPress={handleDelete}
-        >
-          Delete Invoice
-        </Button>
-      </View>
+          <Button
+            mode="outlined"
+            icon="trash-can-outline"
+            textColor={theme.colors.error}
+            style={[styles.btn, { borderColor: theme.colors.error }]}
+            onPress={handleDelete}
+          >
+            Delete Invoice
+          </Button>
+        </View>
       </View>
       <View style={{ height: 40 }} />
     </ScrollView>

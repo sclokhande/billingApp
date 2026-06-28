@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Parchiwala - Instant Thermal Billing & Exclusive Printers</title>
+  <meta name="description" content="Parchiwala is the ultra-low-cost, offline-first billing app designed for merchants. Get a branded, exclusive thermal printer with lifetime access. One-time purchase, no subscription.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+  <!-- Floating Navigation -->
+  <header class="navbar" id="site-header">
+    <div class="nav-container">
+      <a href="#" class="nav-logo" id="nav-logo-link">
+        <img src="assets/logo_emblem.png" alt="Parchiwala Emblem" class="nav-logo-icon">
+        <span class="nav-logo-text">Parchi<span>wala</span></span>
+      </a>
+      <nav class="nav-menu" id="nav-menu-bar">
+        <a href="#features" class="nav-link" id="link-features">Features</a>
+        <a href="#printer" class="nav-link" id="link-printer">Hardware</a>
+        <a href="#screens" class="nav-link" id="link-screens">Screens</a>
+        <a href="#simulator" class="nav-link" id="link-simulator">Interactive Demo</a>
+        <a href="#pricing" class="nav-link btn-cta" id="link-pricing-cta">Get Notified</a>
+      </nav>
+      <button class="mobile-toggle" id="mobile-menu-toggle" aria-label="Toggle Menu">
+        <span></span>
+        <span></span>
+        <span></span>
+      </button>
+    </div>
+  </header>
+
+  <!-- Hero Section -->
+  <section class="hero-section" id="hero">
+    <div class="hero-background-gradient"></div>
+    <div class="container hero-grid">
+      <div class="hero-content">
+        <span class="badge" id="hero-badge">Exclusively Co-Branded Ecosystem</span>
+        <h1 class="hero-title" id="hero-main-title">
+          Print Professional Bills in <span class="highlight-text">Seconds</span>
+        </h1>
+        <p class="hero-subtitle" id="hero-subtext">
+          Parchiwala is an offline-first, ultra-affordable billing app built exclusively for our co-branded thermal printers. Pay once, use lifetime. No monthly rentals, no internet needed.
+        </p>
+        <div class="hero-actions">
+          <a href="#simulator" class="btn btn-primary" id="hero-demo-btn">Try Interactive Demo</a>
+          <a href="#pricing" class="btn btn-secondary" id="hero-waitlist-btn">Join Waitlist</a>
+        </div>
+        <div class="hero-stats">
+          <div class="stat-item">
+            <span class="stat-num">3s</span>
+            <span class="stat-label">Average Print Time</span>
+          </div>
+          <div class="stat-divider"></div>
+          <div class="stat-item">
+            <span class="stat-num">₹0</span>
+            <span class="stat-label">Monthly Subscription</span>
+          </div>
+          <div class="stat-divider"></div>
+          <div class="stat-item">
+            <span class="stat-num">100%</span>
+            <span class="stat-label">Offline Capability</span>
+          </div>
+        </div>
+      </div>
+      <div class="hero-visual">
+        <div class="hero-visual-wrapper">
+          <div class="printer-mockup-card">
+            <img src="assets/thermal_printer.png" alt="Parchiwala Branded Thermal Printer" class="printer-mockup-img" id="hero-printer-image">
+            <div class="printer-glow"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Key Features -->
+  <section class="features-section" id="features">
+    <div class="container">
+      <div class="section-header">
+        <span class="section-tag">Made for Merchants</span>
+        <h2 class="section-title">Everything You Need, Nothing You Don't</h2>
+        <p class="section-subtitle">We stripped away the clutter to build the fastest, most reliable billing experience for retail shops, cafes, and local vendors.</p>
+      </div>
+
+      <div class="features-grid">
+        <div class="feature-card">
+          <div class="feature-icon" style="background-color: rgba(21, 127, 146, 0.1); color: var(--color-primary);">
+            ⚡
+          </div>
+          <h3>Ultra-Fast Print</h3>
+          <p>Generate, calculate, and print physical invoices in under 3 seconds. Keep customer checkout lines moving quickly.</p>
+        </div>
+
+        <div class="feature-card">
+          <div class="feature-icon" style="background-color: rgba(27, 192, 158, 0.1); color: var(--color-secondary);">
+            🔌
+          </div>
+          <h3>Offline-First</h3>
+          <p>No internet connection? No problem. The app uses local SQLite databases, storing all billing data securely on your phone.</p>
+        </div>
+
+        <div class="feature-card">
+          <div class="feature-icon" style="background-color: rgba(230, 126, 34, 0.1); color: var(--color-warning);">
+            🏷️
+          </div>
+          <h3>One-Time Purchase</h3>
+          <p>Ditch monthly software fees forever. A tiny one-time purchase grants you a lifetime license with regular updates.</p>
+        </div>
+
+        <div class="feature-card">
+          <div class="feature-icon" style="background-color: rgba(16, 157, 131, 0.1); color: var(--color-success);">
+            🛠️
+          </div>
+          <h3>Dedicated Support</h3>
+          <p>We provide full hardware and software support. If your printer needs configuration or service, we've got you covered.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Co-Branded Printer Section -->
+  <section class="printer-section" id="printer">
+    <div class="container grid-two-col">
+      <div class="printer-visual-left">
+        <div class="floating-badge">Exclusive Compatibility</div>
+        <img src="assets/thermal_printer.png" alt="Co-Branded Parchiwala Bluetooth Printer" class="printer-highlight-img">
+      </div>
+      <div class="printer-content-right">
+        <span class="section-tag">Exclusive Hardware</span>
+        <h2 class="section-title">The Parchiwala Custom Thermal Printer</h2>
+        <p class="section-desc">
+          To guarantee zero connection lag and instant printing, we supply a custom co-branded thermal printer alongside our app.
+        </p>
+        
+        <div class="lock-ecosystem-box">
+          <div class="lock-icon">🔒</div>
+          <div>
+            <strong>Closed Ecosystem for Maximum Reliability</strong>
+            <p>Our thermal printer works exclusively with the Parchiwala app, and the Parchiwala app only prints to this specific printer. No driver issues, no pairing headache. It's truly plug-and-play.</p>
+          </div>
+        </div>
+
+        <ul class="specs-list">
+          <li><strong>Paper Width:</strong> Supports standard 58mm (32 chars/line) & premium 80mm (48 chars/line) widths.</li>
+          <li><strong>High-Speed Print:</strong> 90mm/s high-speed printing head keeps transactions rapid.</li>
+          <li><strong>Branded Cover:</strong> Sleek matte finish with the Parchiwala emblem proudly printed on top.</li>
+          <li><strong>Power Options:</strong> High-capacity rechargeable lithium-ion battery. Charge once, use all day.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- Screens Showcase Section -->
+  <section class="screens-section" id="screens">
+    <div class="container">
+      <div class="section-header">
+        <span class="section-tag">Take A Tour</span>
+        <h2 class="section-title">Clean, Minimalist Mobile Interface</h2>
+        <p class="section-subtitle">Designed to look gorgeous on light and dark devices. High-contrast typography ensures readable screens under any lighting condition.</p>
+      </div>
+
+      <!-- Interactive Carousel Tabs -->
+      <div class="screens-tabs-container">
+        <button class="screen-tab active" id="tab-dashboard" onclick="switchScreen('dashboard')">📊 Dashboard</button>
+        <button class="screen-tab" id="tab-builder" onclick="switchScreen('builder')">➕ Bill Builder</button>
+        <button class="screen-tab" id="tab-preview" onclick="switchScreen('preview')">📄 Print Preview</button>
+        <button class="screen-tab" id="tab-catalog" onclick="switchScreen('catalog')">📦 Product Catalog</button>
+        <button class="screen-tab" id="tab-customers" onclick="switchScreen('customers')">👥 Customers</button>
+      </div>
+
+      <div class="screens-showcase-wrapper">
+        <!-- Phone Frame Mockup -->
+        <div class="phone-frame">
+          <div class="phone-notch"></div>
+          <div class="phone-screen" id="phone-screen-content">
+            <!-- Screen content will be loaded dynamically via Javascript -->
+          </div>
+          <div class="phone-home-indicator"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Interactive Thermal Printer Simulator -->
+  <section class="simulator-section" id="simulator">
+    <div class="container">
+      <div class="section-header">
+        <span class="section-tag">Interactive Simulation</span>
+        <h2 class="section-title">Experience the Speed: Try Printing a Parchi</h2>
+        <p class="section-subtitle">Add items to the cart, edit shop details, and click "Print". See how your thermal bill will print out instantly on the co-branded printer.</p>
+      </div>
+
+      <div class="simulator-grid">
+        <!-- Simulator Left: Input Panel -->
+        <div class="simulator-panel input-panel">
+          <h3>1. Setup Shop & Invoice Details</h3>
+          
+          <div class="input-group">
+            <label for="sim-shop-name">Shop Name</label>
+            <input type="text" id="sim-shop-name" value="Gupta General Store" placeholder="e.g. Gupta General Store">
+          </div>
+
+          <div class="input-group">
+            <label for="sim-shop-address">Address</label>
+            <input type="text" id="sim-shop-address" value="Shop 12, Main Market, Mumbai" placeholder="e.g. 12 Main Market">
+          </div>
+
+          <div class="input-group">
+            <label for="sim-shop-phone">Phone / Mobile</label>
+            <input type="text" id="sim-shop-phone" value="9876543210" placeholder="e.g. 9876543210">
+          </div>
+
+          <div class="input-group row-group">
+            <div>
+              <label for="sim-print-width">Print Width</label>
+              <select id="sim-print-width">
+                <option value="58mm" selected>58mm (Compact - 32 Char)</option>
+                <option value="80mm">80mm (Wide - 48 Char)</option>
+              </select>
+            </div>
+            <div>
+              <label for="sim-gst-enabled">Tax Settings</label>
+              <select id="sim-gst-enabled">
+                <option value="yes" selected>Show GST (18%)</option>
+                <option value="no">Non-GST Bill</option>
+              </select>
+            </div>
+          </div>
+
+          <h3>2. Select Items to Bill</h3>
+          <div class="sim-items-list" id="sim-items-container">
+            <!-- Items checklist with counters will be populated dynamically -->
+          </div>
+
+          <div class="input-group slogan-group">
+            <label for="sim-slogan">Receipt Slogan / Footer</label>
+            <input type="text" id="sim-slogan" value="Thank You Visit Again!" placeholder="e.g. Thank You Visit Again!">
+          </div>
+
+          <button class="btn btn-print" id="btn-simulate-print">
+            <span class="icon">🔌</span> Print Bill Now
+          </button>
+        </div>
+
+        <!-- Simulator Right: Virtual Printer & Receipt Feed -->
+        <div class="simulator-panel printer-panel">
+          <div class="printer-visual-body">
+            <div class="printer-top-cover">
+              <div class="printer-logo-label">Parchiwala</div>
+              <div class="printer-status-lights">
+                <div class="led led-power" id="led-power" title="Power Indicator"></div>
+                <div class="led led-status" id="led-status" title="Printing Status"></div>
+              </div>
+            </div>
+            <div class="printer-paper-slit">
+              <!-- Animated printed receipt feeds out from here -->
+              <div class="receipt-paper" id="printed-receipt-container">
+                <!-- Receipt elements generated dynamically -->
+              </div>
+            </div>
+          </div>
+          <div class="printer-tear-instructions" id="tear-instructions">
+            📄 Simulated Print. Click & drag receipt to tear it!
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Pricing / Launch waitlist Section -->
+  <section class="pricing-section" id="pricing">
+    <div class="container">
+      <div class="pricing-card">
+        <span class="pricing-badge">Simple Pricing Model</span>
+        <h2 class="pricing-card-title">Lifetime Access. One-Time Payment.</h2>
+        <p class="pricing-card-desc">
+          No credit cards required. No recurring monthly subscriptions. Buy the co-branded printer once, and get the Parchiwala billing application completely free for life.
+        </p>
+
+        <div class="pricing-highlights">
+          <div class="price-highlight-item">
+            <strong>Lifetime Support</strong>
+            <span>Hardware repair & software fixes included</span>
+          </div>
+          <div class="price-highlight-item">
+            <strong>Every Merchant Welcome</strong>
+            <span>Priced lower than regular bluetooth barcode/bill scanners</span>
+          </div>
+        </div>
+
+        <div class="price-callout">
+          <span class="launch-price-tag">Price Launching Soon</span>
+          <p>Get notified the minute we open orders. Early register merchants get free shipping on the co-branded printer bundle!</p>
+        </div>
+
+        <!-- Waitlist Signup Form -->
+        <form class="waitlist-form" id="waitlist-signup-form">
+          <div class="form-row">
+            <input type="email" id="waitlist-email" placeholder="Enter your email address" required aria-label="Email address">
+            <input type="tel" id="waitlist-phone" placeholder="Enter mobile number" required aria-label="Mobile number">
+          </div>
+          <button type="submit" class="btn btn-primary" id="btn-submit-waitlist">Register for Early Access</button>
+        </form>
+        <div class="form-feedback-message" id="waitlist-feedback"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer class="site-footer" id="site-footer">
+    <div class="container footer-grid">
+      <div class="footer-brand">
+        <a href="#" class="footer-logo">
+          <img src="assets/logo_emblem.png" alt="Parchiwala Emblem" class="footer-logo-icon">
+          <span>Parchiwala</span>
+        </a>
+        <p>Ultra-affordable, offline-first billing system and custom-branded thermal printers for local shopkeepers, micro-merchants, and fast checkouts.</p>
+      </div>
+      <div class="footer-links">
+        <h4>Ecosystem</h4>
+        <a href="#features">App Features</a>
+        <a href="#printer">Co-Branded Printer</a>
+        <a href="#screens">Screens Tour</a>
+        <a href="#simulator">Simulator Demo</a>
+      </div>
+      <div class="footer-links">
+        <h4>Purchase & Support</h4>
+        <a href="#pricing">Early Access Pricing</a>
+        <a href="#pricing">Lifetime Guarantee</a>
+        <a href="mailto:support@parchiwala.com">Helpdesk Support</a>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <div class="container">
+        <p>&copy; 2026 Parchiwala Systems. All rights reserved. Made in India. "Parchiwala" and the Parchiwala emblem are registered trademarks.</p>
+      </div>
+    </div>
+  </footer>
+
+  <script src="script.js"></script>
+</body>
+</html>

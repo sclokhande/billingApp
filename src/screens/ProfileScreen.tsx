@@ -90,7 +90,7 @@ export const ProfileScreen = () => {
         slogan: slogan.trim(),
         printWidth,
       });
-      
+
       setSnackbarMessage('Store profile updated successfully!');
       setSnackbarVisible(true);
     } catch (e) {
@@ -192,197 +192,197 @@ export const ProfileScreen = () => {
     <ScrollView style={[styles.container, { backgroundColor: theme.colors.background }]}>
       <View style={{ width: '100%', maxWidth: 650, alignSelf: 'center' }}>
         <Card style={styles.card} mode="outlined">
-        <Card.Content style={{ gap: 12 }}>
-          <Text variant="titleMedium" style={styles.boldText}>
-            Organization Details
-          </Text>
-          
-          <TextInput
-            label="Organization Name *"
-            value={name}
-            onChangeText={setName}
-            mode="outlined"
-            style={styles.input}
-            left={<TextInput.Icon icon="office-building" />}
-          />
+          <Card.Content style={{ gap: 12 }}>
+            <Text variant="titleMedium" style={styles.boldText}>
+              Organization Details
+            </Text>
 
-          <TextInput
-            label="Billing Address *"
-            value={address}
-            onChangeText={setAddress}
-            mode="outlined"
-            multiline
-            numberOfLines={2}
-            style={styles.input}
-            left={<TextInput.Icon icon="map-marker-outline" />}
-          />
-
-          <View style={styles.row}>
             <TextInput
-              label="Landline Number"
-              value={phone}
-              onChangeText={setPhone}
+              label="Organization Name *"
+              value={name}
+              onChangeText={setName}
               mode="outlined"
-              style={[styles.input, { flex: 1 }]}
-              left={<TextInput.Icon icon="phone" />}
+              style={styles.input}
+              left={<TextInput.Icon icon="office-building" />}
             />
+
             <TextInput
-              label="Mobile Number"
-              value={mobile}
-              onChangeText={setMobile}
+              label="Billing Address *"
+              value={address}
+              onChangeText={setAddress}
               mode="outlined"
-              style={[styles.input, { flex: 1, marginLeft: 8 }]}
-              left={<TextInput.Icon icon="cellphone" />}
+              multiline
+              numberOfLines={2}
+              style={styles.input}
+              left={<TextInput.Icon icon="map-marker-outline" />}
             />
-          </View>
 
-          <TextInput
-            label="Email Address"
-            value={email}
-            onChangeText={setEmail}
-            keyboardType="email-address"
-            autoCapitalize="none"
-            mode="outlined"
-            style={styles.input}
-            left={<TextInput.Icon icon="email-outline" />}
-          />
+            <View style={styles.row}>
+              <TextInput
+                label="Landline Number"
+                value={phone}
+                onChangeText={setPhone}
+                mode="outlined"
+                style={[styles.input, { flex: 1 }]}
+                left={<TextInput.Icon icon="phone" />}
+              />
+              <TextInput
+                label="Mobile Number"
+                value={mobile}
+                onChangeText={setMobile}
+                mode="outlined"
+                style={[styles.input, { flex: 1, marginLeft: 8 }]}
+                left={<TextInput.Icon icon="cellphone" />}
+              />
+            </View>
 
-          <Divider style={{ marginVertical: 8 }} />
+            <TextInput
+              label="Email Address"
+              value={email}
+              onChangeText={setEmail}
+              keyboardType="email-address"
+              autoCapitalize="none"
+              mode="outlined"
+              style={styles.input}
+              left={<TextInput.Icon icon="email-outline" />}
+            />
 
-          <Text variant="titleMedium" style={styles.boldText}>
-            Taxation Settings (GST)
-          </Text>
+            <Divider style={{ marginVertical: 8 }} />
 
-          <TextInput
-            label="GSTIN Number (Optional)"
-            value={gstNumber}
-            onChangeText={(text) => setGstNumber(text.toUpperCase().replace(/[^A-Z0-9]/g, ''))}
-            maxLength={15}
-            mode="outlined"
-            placeholder="e.g. 27AAAAA1111A1Z1"
-            style={styles.input}
-            left={<TextInput.Icon icon="file-document-outline" />}
-          />
+            <Text variant="titleMedium" style={styles.boldText}>
+              Taxation Settings (GST)
+            </Text>
 
-          {/* Non-mandatory Checkbox Toggle */}
-          <Checkbox.Item
-            label="Use GSTIN and Tax calculations on bills"
-            status={showGstOnBill ? 'checked' : 'unchecked'}
-            onPress={() => setShowGstOnBill(!showGstOnBill)}
-            mode="android"
-            position="leading"
-            labelStyle={styles.checkboxLabel}
-            style={styles.checkboxItem}
-            color={theme.colors.primary}
-          />
+            <TextInput
+              label="GSTIN Number (Optional)"
+              value={gstNumber}
+              onChangeText={(text) => setGstNumber(text.toUpperCase().replace(/[^A-Z0-9]/g, ''))}
+              maxLength={15}
+              mode="outlined"
+              placeholder="e.g. 27AAAAA1111A1Z1"
+              style={styles.input}
+              left={<TextInput.Icon icon="file-document-outline" />}
+            />
 
-          <Divider style={{ marginVertical: 8 }} />
+            {/* Non-mandatory Checkbox Toggle */}
+            <Checkbox.Item
+              label="Use GSTIN and Tax calculations on bills"
+              status={showGstOnBill ? 'checked' : 'unchecked'}
+              onPress={() => setShowGstOnBill(!showGstOnBill)}
+              mode="android"
+              position="leading"
+              labelStyle={styles.checkboxLabel}
+              style={styles.checkboxItem}
+              color={theme.colors.primary}
+            />
 
-          <Text variant="titleMedium" style={styles.boldText}>
-            Print Formatting Preferences
-          </Text>
+            <Divider style={{ marginVertical: 8 }} />
 
-          <TextInput
-            label="Preferred Currency Symbol"
-            value={currency}
-            editable={false}
-            mode="outlined"
-            style={styles.input}
-            maxLength={3}
-            left={<TextInput.Icon icon="currency-inr" />}
-          />
+            <Text variant="titleMedium" style={styles.boldText}>
+              Print Formatting Preferences
+            </Text>
 
-          <TextInput
-            label="Invoice Slogan"
-            value={slogan}
-            onChangeText={setSlogan}
-            mode="outlined"
-            placeholder="e.g. Thank You Visit again"
-            style={styles.input}
-            left={<TextInput.Icon icon="format-quote-open" />}
-          />
+            <TextInput
+              label="Preferred Currency Symbol"
+              value={currency}
+              editable={false}
+              mode="outlined"
+              style={styles.input}
+              maxLength={3}
+              left={<TextInput.Icon icon="currency-inr" />}
+            />
 
-          <Text variant="bodyMedium" style={[styles.boldText, { marginTop: 8 }]}>
-            Receipt Print Width
-          </Text>
-          <Text variant="bodySmall" style={{ color: theme.colors.outline, marginBottom: 8 }}>
-            Set the default layout width for thermal prints. 58mm is standard for pocket printers, 80mm is standard for desktop printers.
-          </Text>
-          <SegmentedButtons
-            value={printWidth}
-            onValueChange={(val) => setPrintWidth(val as '58mm' | '80mm')}
-            buttons={[
-              {
-                value: '58mm',
-                label: '58mm (32 Chars)',
-                style: styles.segmentedBtn,
-              },
-              {
-                value: '80mm',
-                label: '80mm (48 Chars)',
-                style: styles.segmentedBtn,
-              },
-            ]}
-          />
+            <TextInput
+              label="Invoice Slogan"
+              value={slogan}
+              onChangeText={setSlogan}
+              mode="outlined"
+              placeholder="e.g. Thank You Visit again"
+              style={styles.input}
+              left={<TextInput.Icon icon="format-quote-open" />}
+            />
 
-          <Button
-            mode="contained"
-            icon="content-save-outline"
-            style={styles.saveBtn}
-            onPress={handleSave}
-          >
-            Save Store Settings
-          </Button>
-        </Card.Content>
-      </Card>
+            <Text variant="bodyMedium" style={[styles.boldText, { marginTop: 8 }]}>
+              Receipt Print Width
+            </Text>
+            <Text variant="bodySmall" style={{ color: theme.colors.outline, marginBottom: 8 }}>
+              Set the default layout width for thermal prints. 58mm is standard for pocket printers, 80mm is standard for desktop printers.
+            </Text>
+            <SegmentedButtons
+              value={printWidth}
+              onValueChange={(val) => setPrintWidth(val as '58mm' | '80mm')}
+              buttons={[
+                {
+                  value: '58mm',
+                  label: '58mm (32 Chars)',
+                  style: styles.segmentedBtn,
+                },
+                {
+                  value: '80mm',
+                  label: '80mm (48 Chars)',
+                  style: styles.segmentedBtn,
+                },
+              ]}
+            />
 
-      {/* Database Backup & Restore Card */}
-      <Card style={styles.card} mode="outlined">
-        <Card.Content style={{ gap: 12 }}>
-          <Text variant="titleMedium" style={styles.boldText}>
-            Database Backup & Restore
-          </Text>
-          <Text variant="bodySmall" style={{ color: theme.colors.outline }}>
-            Export your entire database (products, customers, invoices) as a backup, or restore from a previously exported backup string.
-          </Text>
-          
-          <View style={styles.row}>
             <Button
-              mode="contained-tonal"
-              icon="export"
-              style={{ flex: 1 }}
-              onPress={handleExport}
+              mode="contained"
+              icon="content-save-outline"
+              style={styles.saveBtn}
+              onPress={handleSave}
             >
-              Export Data
+              Save Store Settings
             </Button>
-            <Button
-              mode="contained-tonal"
-              icon="import"
-              style={{ flex: 1, marginLeft: 8 }}
-              onPress={() => setImportDialogVisible(true)}
-            >
-              Import Data
-            </Button>
-          </View>
-        </Card.Content>
-      </Card>
+          </Card.Content>
+        </Card>
 
-      <Button
-        mode="outlined"
-        icon="trash-can-outline"
-        textColor={theme.colors.error}
-        style={[styles.resetBtn, { borderColor: theme.colors.error, marginTop: 8 }]}
-        onPress={handleResetData}
-      >
-        Wipe Database Records
-      </Button>
+        {/* Database Backup & Restore Card */}
+        <Card style={styles.card} mode="outlined">
+          <Card.Content style={{ gap: 12 }}>
+            <Text variant="titleMedium" style={styles.boldText}>
+              Database Backup & Restore
+            </Text>
+            <Text variant="bodySmall" style={{ color: theme.colors.outline }}>
+              Export your entire database (products, customers, invoices) as a backup, or restore from a previously exported backup string.
+            </Text>
 
-      {/* Developer Attribution Footer */}
-      <View style={styles.footerContainer}>
-        <Text variant="labelMedium" style={styles.footerText}>
-          App Developed by Sushant Lokhande
-        </Text>
-      </View>
+            <View style={styles.row}>
+              <Button
+                mode="contained-tonal"
+                icon="export"
+                style={{ flex: 1 }}
+                onPress={handleExport}
+              >
+                Export Data
+              </Button>
+              <Button
+                mode="contained-tonal"
+                icon="import"
+                style={{ flex: 1, marginLeft: 8 }}
+                onPress={() => setImportDialogVisible(true)}
+              >
+                Import Data
+              </Button>
+            </View>
+          </Card.Content>
+        </Card>
+
+        <Button
+          mode="outlined"
+          icon="trash-can-outline"
+          textColor={theme.colors.error}
+          style={[styles.resetBtn, { borderColor: theme.colors.error, marginTop: 8 }]}
+          onPress={handleResetData}
+        >
+          Wipe Database Records
+        </Button>
+
+        {/* Developer Attribution Footer */}
+        <View style={styles.footerContainer}>
+          <Text variant="labelMedium" style={styles.footerText}>
+            Developed by Sushant Lokhande
+          </Text>
+        </View>
 
       </View>
 
@@ -462,7 +462,7 @@ export const ProfileScreen = () => {
             <Text variant="bodyMedium" style={{ marginBottom: 12 }}>
               Select which records to wipe from your device:
             </Text>
-            
+
             <RadioButton.Group onValueChange={(value) => setWipeOption(value as 'invoices' | 'all')} value={wipeOption}>
               <View style={styles.radioRow}>
                 <RadioButton value="invoices" color={theme.colors.error} />
@@ -489,9 +489,9 @@ export const ProfileScreen = () => {
           </Dialog.Content>
           <Dialog.Actions>
             <Button onPress={() => setWipeDialogVisible(false)}>Cancel</Button>
-            <Button 
-              onPress={handleWipeProceed} 
-              textColor={theme.colors.error} 
+            <Button
+              onPress={handleWipeProceed}
+              textColor={theme.colors.error}
               mode="contained-tonal"
               style={{ borderRadius: 8 }}
             >

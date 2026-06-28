@@ -152,88 +152,88 @@ export const DashboardScreen = ({ navigation }: any) => {
           </View>
         </View>
 
-      {/* Quick Actions */}
-      <View style={styles.actionsContainer}>
-        <Text variant="titleMedium" style={[styles.sectionTitle, styles.boldText]}>
-          Quick Actions
-        </Text>
-        <View style={styles.actionsRow}>
-          <Button
-            mode="contained"
-            icon="receipt"
-            style={styles.actionBtn}
-            onPress={() => navigation.navigate('Billing')}
-          >
-            New Invoice
-          </Button>
-          <Button
-            mode="outlined"
-            icon="package-variant-closed"
-            style={styles.actionBtn}
-            onPress={() => navigation.navigate('Inventory')}
-          >
-            Inventory
-          </Button>
-        </View>
-      </View>
-
-      {/* Recent Invoices List */}
-      <View style={styles.recentInvoicesContainer}>
-        <View style={[styles.row, { justifyContent: 'space-between', marginBottom: 12 }]}>
-          <Text variant="titleMedium" style={[styles.boldText]}>
-            Recent Invoices ({totalInvoices})
+        {/* Quick Actions */}
+        <View style={styles.actionsContainer}>
+          <Text variant="titleMedium" style={[styles.sectionTitle, styles.boldText]}>
+            Quick Actions
           </Text>
-          {totalInvoices > 0 && (
-            <Text
-              variant="bodySmall"
-              style={{ color: theme.colors.primary, fontWeight: 'bold' }}
+          <View style={styles.actionsRow}>
+            <Button
+              mode="contained"
+              icon="receipt"
+              style={styles.actionBtn}
               onPress={() => navigation.navigate('Billing')}
             >
-              Create New
+              New Invoice
+            </Button>
+            <Button
+              mode="outlined"
+              icon="package-variant-closed"
+              style={styles.actionBtn}
+              onPress={() => navigation.navigate('Inventory')}
+            >
+              Inventory
+            </Button>
+          </View>
+        </View>
+
+        {/* Recent Invoices List */}
+        <View style={styles.recentInvoicesContainer}>
+          <View style={[styles.row, { justifyContent: 'space-between', marginBottom: 12 }]}>
+            <Text variant="titleMedium" style={[styles.boldText]}>
+              Recent Invoices ({totalInvoices})
             </Text>
+            {totalInvoices > 0 && (
+              <Text
+                variant="bodySmall"
+                style={{ color: theme.colors.primary, fontWeight: 'bold' }}
+                onPress={() => navigation.navigate('Billing')}
+              >
+                Create New
+              </Text>
+            )}
+          </View>
+
+          {totalInvoices === 0 ? (
+            <Card style={styles.emptyCard}>
+              <Card.Content style={styles.emptyCardContent}>
+                <MaterialCommunityIcons name="receipt" size={48} color={theme.colors.outline} />
+                <Text variant="titleMedium" style={{ marginTop: 12, color: theme.colors.onSurfaceVariant }}>
+                  No invoices found
+                </Text>
+                <Text variant="bodyMedium" style={{ color: theme.colors.onSurfaceVariant, textAlign: 'center', marginTop: 4 }}>
+                  Get started by creating your first bill invoice today.
+                </Text>
+                <Button
+                  mode="contained"
+                  style={{ marginTop: 16 }}
+                  onPress={() => navigation.navigate('Billing')}
+                >
+                  Create Invoice
+                </Button>
+              </Card.Content>
+            </Card>
+          ) : (
+            <FlatList
+              data={invoices.slice(0, 5)} // Show top 5 recent invoices
+              renderItem={renderInvoiceItem}
+              keyExtractor={(item) => item.id}
+              scrollEnabled={false} // Since we are nested in ScrollView
+              ItemSeparatorComponent={() => <View style={{ height: 4 }} />}
+            />
           )}
         </View>
 
-        {totalInvoices === 0 ? (
-          <Card style={styles.emptyCard}>
-            <Card.Content style={styles.emptyCardContent}>
-              <MaterialCommunityIcons name="receipt" size={48} color={theme.colors.outline} />
-              <Text variant="titleMedium" style={{ marginTop: 12, color: theme.colors.onSurfaceVariant }}>
-                No invoices found
-              </Text>
-              <Text variant="bodyMedium" style={{ color: theme.colors.onSurfaceVariant, textAlign: 'center', marginTop: 4 }}>
-                Get started by creating your first bill invoice today.
-              </Text>
-              <Button
-                mode="contained"
-                style={{ marginTop: 16 }}
-                onPress={() => navigation.navigate('Billing')}
-              >
-                Create Invoice
-              </Button>
-            </Card.Content>
-          </Card>
-        ) : (
-          <FlatList
-            data={invoices.slice(0, 5)} // Show top 5 recent invoices
-            renderItem={renderInvoiceItem}
-            keyExtractor={(item) => item.id}
-            scrollEnabled={false} // Since we are nested in ScrollView
-            ItemSeparatorComponent={() => <View style={{ height: 4 }} />}
-          />
-        )}
+        {/* Developer Attribution Footer */}
+        <View style={styles.footerContainer}>
+          <Text variant="labelMedium" style={styles.footerText}>
+            Developed by Sushant Lokhande
+          </Text>
+        </View>
       </View>
 
-      {/* Developer Attribution Footer */}
-      <View style={styles.footerContainer}>
-        <Text variant="labelMedium" style={styles.footerText}>
-          App Developed by Sushant Lokhande
-        </Text>
-      </View>
-    </View>
-
-    <View style={{ height: 20 }} />
-  </ScrollView>
+      <View style={{ height: 20 }} />
+    </ScrollView>
   );
 };
 
