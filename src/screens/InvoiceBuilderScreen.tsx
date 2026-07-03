@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { StyleSheet, View, ScrollView, FlatList, Alert, useWindowDimensions } from 'react-native';
+import { StyleSheet, View, ScrollView, FlatList, Alert, useWindowDimensions, Platform } from 'react-native';
 import {
   Text,
   TextInput,
@@ -113,37 +113,108 @@ export const InvoiceBuilderScreen = ({ navigation }: any) => {
   const addToCart = (product: Product) => {
     const existing = cart.find((item) => item.product.id === product.id);
     const defaultUnit = product.unit || 'Pcs';
-    if (existing) {
-      const delta = getDeltaForUnit(existing.unit, false);
-      setCart(
-        cart.map((item) =>
-          item.product.id === product.id ? { ...item, quantity: item.quantity + delta } : item
-        )
+    const activeUnit = existing ? existing.unit : defaultUnit;
+    const delta = existing ? getDeltaForUnit(activeUnit, false) : 1;
+    const currentQty = existing ? existing.quantity : 0;
+    const nextQty = currentQty + delta;
+
+    const performAdd = () => {
+      if (existing) {
+        setCart(
+          cart.map((item) =>
+            item.product.id === product.id ? { ...item, quantity: nextQty } : item
+          )
+        );
+      } else {
+        setCart([...cart, {
+          product,
+          quantity: 1,
+          unit: defaultUnit,
+          price: product.price,
+        }]);
+      }
+      setProductDialogVisible(false);
+    };
+
+    // Convert stock to active cart unit for warning alert
+    const baseUnit = (product.unit || 'Pcs').toLowerCase();
+    const targetUnit = activeUnit.toLowerCase();
+    let stockInActiveUnit = product.stockQuantity ?? 0;
+    if (baseUnit === 'kg' && targetUnit === 'gm') {
+      stockInActiveUnit = (product.stockQuantity ?? 0) * 1000;
+    } else if (baseUnit === 'gm' && targetUnit === 'kg') {
+      stockInActiveUnit = (product.stockQuantity ?? 0) / 1000;
+    } else if ((baseUnit === 'ltr' || baseUnit === 'litre') && targetUnit === 'ml') {
+      stockInActiveUnit = (product.stockQuantity ?? 0) * 1000;
+    } else if (baseUnit === 'ml' && (targetUnit === 'ltr' || targetUnit === 'litre')) {
+      stockInActiveUnit = (product.stockQuantity ?? 0) / 1000;
+    }
+
+    if (nextQty > stockInActiveUnit) {
+      Alert.alert(
+        'Stock Alert',
+        `The requested quantity (${nextQty} ${activeUnit}) exceeds the available stock quantity (${stockInActiveUnit.toFixed(1)} ${activeUnit} remaining). Do you want to proceed?`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Proceed', onPress: performAdd }
+        ]
       );
     } else {
-      setCart([...cart, {
-        product,
-        quantity: 1,
-        unit: defaultUnit,
-        price: product.price,
-      }]);
+      performAdd();
     }
-    setProductDialogVisible(false);
   };
 
   const updateQuantity = (productId: string, isDecrement: boolean) => {
-    setCart(
-      cart
-        .map((item) => {
-          if (item.product.id === productId) {
-            const delta = getDeltaForUnit(item.unit, isDecrement);
-            const nextQty = Math.max(0, item.quantity + delta);
-            return { ...item, quantity: nextQty };
-          }
-          return item;
-        })
-        .filter((item) => item.quantity > 0)
-    );
+    const cartItem = cart.find((item) => item.product.id === productId);
+    if (!cartItem) return;
+
+    const delta = getDeltaForUnit(cartItem.unit, isDecrement);
+    const nextQty = Math.max(0, cartItem.quantity + delta);
+
+    if (nextQty === 0) {
+      setCart(cart.filter((item) => item.product.id !== productId));
+      return;
+    }
+
+    // Convert stock to item unit for warning alert
+    const baseUnit = (cartItem.product.unit || 'Pcs').toLowerCase();
+    const targetUnit = cartItem.unit.toLowerCase();
+    let stockInItemUnit = cartItem.product.stockQuantity ?? 0;
+    if (baseUnit === 'kg' && targetUnit === 'gm') {
+      stockInItemUnit = (cartItem.product.stockQuantity ?? 0) * 1000;
+    } else if (baseUnit === 'gm' && targetUnit === 'kg') {
+      stockInItemUnit = (cartItem.product.stockQuantity ?? 0) / 1000;
+    } else if ((baseUnit === 'ltr' || baseUnit === 'litre') && targetUnit === 'ml') {
+      stockInItemUnit = (cartItem.product.stockQuantity ?? 0) * 1000;
+    } else if (baseUnit === 'ml' && (targetUnit === 'ltr' || targetUnit === 'litre')) {
+      stockInItemUnit = (cartItem.product.stockQuantity ?? 0) / 1000;
+    }
+
+    if (!isDecrement && nextQty > stockInItemUnit) {
+      Alert.alert(
+        'Stock Alert',
+        `Increasing quantity to ${nextQty} ${cartItem.unit} exceeds the available stock (${stockInItemUnit.toFixed(1)} ${cartItem.unit} remaining). Do you want to proceed?`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Proceed',
+            onPress: () => {
+              setCart(
+                cart.map((item) =>
+                  item.product.id === productId ? { ...item, quantity: nextQty } : item
+                )
+              );
+            },
+          },
+        ]
+      );
+    } else {
+      setCart(
+        cart.map((item) =>
+          item.product.id === productId ? { ...item, quantity: nextQty } : item
+        )
+      );
+    }
   };
 
   const removeFromCart = (productId: string) => {
@@ -334,9 +405,17 @@ export const InvoiceBuilderScreen = ({ navigation }: any) => {
             >
               <Card.Content style={styles.cartCardContent}>
                 <View style={{ flex: 1, marginRight: 8 }}>
-                  <Text variant="titleMedium" style={styles.boldText} numberOfLines={1}>
-                    {item.product.name}
-                  </Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap' }}>
+                    <Text variant="titleMedium" style={[styles.boldText, { flexShrink: 1 }]} numberOfLines={1}>
+                      {item.product.name}
+                    </Text>
+                    <IconButton
+                      icon="pencil-outline"
+                      size={14}
+                      style={{ margin: 0, marginLeft: 2, padding: 0, width: 20, height: 20 }}
+                      iconColor={theme.colors.primary}
+                    />
+                  </View>
                   <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
                     {organization.currency} {item.price.toFixed(2)} / {item.unit}
                     {item.unit.toLowerCase() !== (item.product.unit || 'pcs').toLowerCase() && (
@@ -390,7 +469,7 @@ export const InvoiceBuilderScreen = ({ navigation }: any) => {
               label="Discount (%)"
               value={discount}
               onChangeText={(text) => {
-                const sanitized = text.replace(/[^0-9.]/g, '');
+                const sanitized = text.replace(/,/g, '.').replace(/[^0-9.]/g, '');
                 if (sanitized === '') {
                   setDiscount('');
                   return;
@@ -402,7 +481,7 @@ export const InvoiceBuilderScreen = ({ navigation }: any) => {
                   setDiscount(sanitized);
                 }
               }}
-              keyboardType="numeric"
+              keyboardType={Platform.OS === 'ios' && __DEV__ ? 'default' : 'decimal-pad'}
               mode="outlined"
               style={{ backgroundColor: '#FFF' }}
               left={<TextInput.Icon icon="percent" />}
@@ -567,7 +646,7 @@ export const InvoiceBuilderScreen = ({ navigation }: any) => {
                     label={`Quantity (${editingCartItem.unit})`}
                     value={editingCartItem.quantity}
                     onChangeText={(text) => {
-                      let sanitized = text.replace(/[^0-9.]/g, '');
+                      let sanitized = text.replace(/,/g, '.').replace(/[^0-9.]/g, '');
                       const u = (editingCartItem.unit || '').toLowerCase();
                       if (['pcs', 'numbers', 'number', 'pack', 'box', 'strip', 'tablet'].includes(u)) {
                         sanitized = sanitized.replace(/\./g, '');
@@ -582,7 +661,7 @@ export const InvoiceBuilderScreen = ({ navigation }: any) => {
                         quantity: sanitized,
                       });
                     }}
-                    keyboardType="numeric"
+                    keyboardType={Platform.OS === 'ios' && __DEV__ ? 'default' : 'decimal-pad'}
                     mode="outlined"
                     style={{ backgroundColor: '#FFF' }}
                   />
@@ -627,7 +706,28 @@ export const InvoiceBuilderScreen = ({ navigation }: any) => {
                   const qty = parseFloat(editingCartItem.quantity) || 0;
                   if (qty <= 0) {
                     removeFromCart(editingCartItem.productId);
-                  } else {
+                    setEditItemDialogVisible(false);
+                    return;
+                  }
+                  
+                  const targetProd = products.find((p: Product) => p.id === editingCartItem.productId);
+                  const availableStock = targetProd ? (targetProd.stockQuantity ?? 0) : 0;
+                  
+                  // Convert quantity if units differ (e.g. if stock is in KG but selected unit is GM)
+                  const baseUnit = editingCartItem.baseUnit.toLowerCase();
+                  const targetUnit = editingCartItem.unit.toLowerCase();
+                  let stockInTargetUnit = availableStock;
+                  if (baseUnit === 'kg' && targetUnit === 'gm') {
+                    stockInTargetUnit = availableStock * 1000;
+                  } else if (baseUnit === 'gm' && targetUnit === 'kg') {
+                    stockInTargetUnit = availableStock / 1000;
+                  } else if ((baseUnit === 'ltr' || baseUnit === 'litre') && targetUnit === 'ml') {
+                    stockInTargetUnit = availableStock * 1000;
+                  } else if (baseUnit === 'ml' && (targetUnit === 'ltr' || targetUnit === 'litre')) {
+                    stockInTargetUnit = availableStock / 1000;
+                  }
+
+                  const applyChanges = () => {
                     const pricePerUnit = getCalculatedItemPrice(
                       editingCartItem.basePrice,
                       editingCartItem.baseUnit,
@@ -645,8 +745,21 @@ export const InvoiceBuilderScreen = ({ navigation }: any) => {
                           : item
                       )
                     );
+                    setEditItemDialogVisible(false);
+                  };
+
+                  if (qty > stockInTargetUnit) {
+                    Alert.alert(
+                      'Stock Alert',
+                      `The specified quantity (${qty} ${editingCartItem.unit}) exceeds the available stock (${stockInTargetUnit.toFixed(1)} ${editingCartItem.unit} remaining). Do you want to proceed?`,
+                      [
+                        { text: 'Cancel', style: 'cancel' },
+                        { text: 'Proceed', onPress: applyChanges }
+                      ]
+                    );
+                  } else {
+                    applyChanges();
                   }
-                  setEditItemDialogVisible(false);
                 }
               }}
             >
@@ -723,14 +836,20 @@ export const InvoiceBuilderScreen = ({ navigation }: any) => {
                   (p.description && p.description.toLowerCase().includes(productSearchQuery.toLowerCase()))
                 )}
                 keyExtractor={(item) => item.id}
-                renderItem={({ item }) => (
-                  <List.Item
-                    title={item.name}
-                    description={`Price: ${organization.currency}${item.price.toFixed(2)} / ${item.unit || 'Pcs'} • GST: ${item.taxRate}%`}
-                    onPress={() => addToCart(item)}
-                    left={(props) => <List.Icon {...props} icon="package-variant-closed" />}
-                  />
-                )}
+                renderItem={({ item }) => {
+                  const stockText = item.stockQuantity <= 0 
+                    ? 'Out of Stock' 
+                    : `Stock: ${item.stockQuantity} ${item.unit || 'Pcs'}`;
+                  return (
+                    <List.Item
+                      title={item.name}
+                      description={`Price: ${organization.currency}${item.price.toFixed(2)} / ${item.unit || 'Pcs'} • GST: ${item.taxRate}%\n${stockText}`}
+                      descriptionNumberOfLines={2}
+                      onPress={() => addToCart(item)}
+                      left={(props) => <List.Icon {...props} icon="package-variant-closed" />}
+                    />
+                  );
+                }}
                 style={{ maxHeight: 300 }}
                 ListEmptyComponent={() => (
                   <View style={{ padding: 24, alignItems: 'center' }}>

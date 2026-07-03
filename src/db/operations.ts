@@ -97,12 +97,21 @@ export const saveProduct = async (product: Product): Promise<void> => {
   const prodToSave = {
     ...product,
     id: product.id || generateId(),
+    stockQuantity: product.stockQuantity || 0,
   };
 
   if (mode === 'SQLITE') {
     await executeQuery(
-      `INSERT OR REPLACE INTO products (id, name, description, price, taxRate, unit) VALUES (?, ?, ?, ?, ?, ?)`,
-      [prodToSave.id, prodToSave.name, prodToSave.description, prodToSave.price, prodToSave.taxRate, prodToSave.unit]
+      `INSERT OR REPLACE INTO products (id, name, description, price, taxRate, unit, stockQuantity) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [
+        prodToSave.id,
+        prodToSave.name,
+        prodToSave.description,
+        prodToSave.price,
+        prodToSave.taxRate,
+        prodToSave.unit,
+        prodToSave.stockQuantity,
+      ]
     );
   } else {
     const index = memoryDb.products.findIndex((p) => p.id === prodToSave.id);
@@ -294,6 +303,31 @@ export const saveInvoice = async (invoice: Invoice, items: InvoiceItem[]): Promi
             item.unit,
           ]
         );
+
+        // Fetch product's base unit to compute stock conversion factor
+        const productRes = await executeQuery('SELECT unit FROM products WHERE id = ?', [item.productId]);
+        let conversionFactor = 1;
+        if (productRes.rows.length > 0) {
+          const baseUnit = (productRes.rows[0].unit || '').toLowerCase();
+          const itemUnit = (item.unit || '').toLowerCase();
+          if (baseUnit !== itemUnit) {
+            if (baseUnit === 'kg' && itemUnit === 'gm') {
+              conversionFactor = 1 / 1000;
+            } else if (baseUnit === 'gm' && itemUnit === 'kg') {
+              conversionFactor = 1000;
+            } else if ((baseUnit === 'ltr' || baseUnit === 'litre') && itemUnit === 'ml') {
+              conversionFactor = 1 / 1000;
+            } else if (baseUnit === 'ml' && (itemUnit === 'ltr' || itemUnit === 'litre')) {
+              conversionFactor = 1000;
+            }
+          }
+        }
+
+        // Decrement product stock quantity with conversion factor
+        await executeQuery(
+          `UPDATE products SET stockQuantity = stockQuantity - ? WHERE id = ?`,
+          [item.quantity * conversionFactor, item.productId]
+        );
       }
 
       await executeQuery('COMMIT');
@@ -307,8 +341,35 @@ export const saveInvoice = async (invoice: Invoice, items: InvoiceItem[]): Promi
     memoryDb.invoices.push(invoiceToSave);
     memoryDb.invoiceItems.push(...itemsToSave);
     
+    // Decrement product stock quantity in memory
+    for (const item of itemsToSave) {
+      const prodIndex = memoryDb.products.findIndex((p) => p.id === item.productId);
+      if (prodIndex >= 0) {
+        const product = memoryDb.products[prodIndex];
+        const baseUnit = (product.unit || '').toLowerCase();
+        const itemUnit = (item.unit || '').toLowerCase();
+        let conversionFactor = 1;
+        
+        if (baseUnit !== itemUnit) {
+          if (baseUnit === 'kg' && itemUnit === 'gm') {
+            conversionFactor = 1 / 1000;
+          } else if (baseUnit === 'gm' && itemUnit === 'kg') {
+            conversionFactor = 1000;
+          } else if ((baseUnit === 'ltr' || baseUnit === 'litre') && itemUnit === 'ml') {
+            conversionFactor = 1 / 1000;
+          } else if (baseUnit === 'ml' && (itemUnit === 'ltr' || itemUnit === 'litre')) {
+            conversionFactor = 1000;
+          }
+        }
+
+        const currentStock = product.stockQuantity || 0;
+        memoryDb.products[prodIndex].stockQuantity = currentStock - (item.quantity * conversionFactor);
+      }
+    }
+    
     await AsyncStorage.setItem(ASYNC_KEYS.INVOICES, JSON.stringify(memoryDb.invoices));
     await AsyncStorage.setItem(ASYNC_KEYS.INVOICE_ITEMS, JSON.stringify(memoryDb.invoiceItems));
+    await AsyncStorage.setItem(ASYNC_KEYS.PRODUCTS, JSON.stringify(memoryDb.products));
   }
 };
 

@@ -19,6 +19,7 @@ export interface Product {
   price: number;
   taxRate: number; // percentage, e.g. 18 for 18%
   unit: string; // e.g. "KG", "Meter", "Pcs"
+  stockQuantity: number;
 }
 
 export interface Customer {

@@ -101,17 +101,34 @@ export const formatTabularRow = (
   total: string,
   width: number
 ): string => {
-  // Determine column widths
-  let nameWidth = 12;
-  let qtyWidth = 5;
-  let rateWidth = 7;
+  // Determine default column widths (excluding 1-character gap separators)
+  let nameWidth = 11;
+  let qtyWidth = 4;
+  let rateWidth = 6;
   let totalWidth = 8;
 
   if (width === 48) {
-    nameWidth = 24;
-    qtyWidth = 6;
-    rateWidth = 8;
+    nameWidth = 23;
+    qtyWidth = 5;
+    rateWidth = 7;
     totalWidth = 10;
+  }
+
+  // Dynamically adjust nameWidth if other columns exceed their allocated widths
+  let extraWidth = 0;
+  if (qty.length > qtyWidth) {
+    extraWidth += (qty.length - qtyWidth);
+  }
+  if (rate.length > rateWidth) {
+    extraWidth += (rate.length - rateWidth);
+  }
+  if (total.length > totalWidth) {
+    extraWidth += (total.length - totalWidth);
+  }
+
+  // Deduct the extra width from nameWidth, but keep name column at least 4 characters wide
+  if (extraWidth > 0) {
+    nameWidth = Math.max(4, nameWidth - extraWidth);
   }
 
   const nameLines = wrapTextForColumn(name, nameWidth);
@@ -120,12 +137,17 @@ export const formatTabularRow = (
   for (let i = 0; i < nameLines.length; i++) {
     const namePart = nameLines[i].padEnd(nameWidth, ' ');
     if (i === 0) {
-      const qtyPart = qty.padStart(qtyWidth, ' ');
-      const ratePart = rate.padStart(rateWidth, ' ');
-      const totalPart = total.padStart(totalWidth, ' ');
-      formattedLines.push(namePart + qtyPart + ratePart + totalPart);
+      const qtyPart = qty.padStart(qty.length > qtyWidth ? qty.length : qtyWidth, ' ');
+      const ratePart = rate.padStart(rate.length > rateWidth ? rate.length : rateWidth, ' ');
+      const totalPart = total.padStart(total.length > totalWidth ? total.length : totalWidth, ' ');
+      // Join with explicit 1-character spaces to guarantee a gap between columns
+      formattedLines.push(namePart + ' ' + qtyPart + ' ' + ratePart + ' ' + totalPart);
     } else {
-      formattedLines.push(namePart + ' '.repeat(qtyWidth + rateWidth + totalWidth));
+      const actualQtyWidth = qty.length > qtyWidth ? qty.length : qtyWidth;
+      const actualRateWidth = rate.length > rateWidth ? rate.length : rateWidth;
+      const actualTotalWidth = total.length > totalWidth ? total.length : totalWidth;
+      // Subsequent wrapped lines of item name should align properly with the spacing
+      formattedLines.push(namePart + ' ' + ' '.repeat(actualQtyWidth) + ' ' + ' '.repeat(actualRateWidth) + ' ' + ' '.repeat(actualTotalWidth));
     }
   }
 
@@ -188,15 +210,8 @@ export const formatThermalReceipt = (
       const num = parseFloat(qtyStr);
       qtyStr = num.toFixed(num % 1 === 0 ? 0 : (num * 10) % 1 === 0 ? 1 : 2);
     }
-    const unitSuffix = getCompactUnit(item.unit);
-    let finalQtyStr = qtyStr + unitSuffix;
-    const qtyWidth = width === 48 ? 6 : 5;
-    if (finalQtyStr.length > qtyWidth) {
-      finalQtyStr = qtyStr + unitSuffix.trim();
-    }
-    if (finalQtyStr.length > qtyWidth) {
-      finalQtyStr = qtyStr;
-    }
+    // Print exact selected unit from bill in the format: qty / UOM
+    const finalQtyStr = qtyStr + '/' + (item.unit || '');
 
     const rateStr = item.price.toFixed(2);
     const totalStr = item.total.toFixed(2);

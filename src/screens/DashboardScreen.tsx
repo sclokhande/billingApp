@@ -1,6 +1,6 @@
-import React from 'react';
-import { StyleSheet, View, ScrollView, FlatList, TouchableOpacity, useWindowDimensions } from 'react-native';
-import { Text, Card, Button, useTheme, Chip, Divider, Avatar } from 'react-native-paper';
+import React, { useState } from 'react';
+import { StyleSheet, View, ScrollView, FlatList, TouchableOpacity, useWindowDimensions, Platform, Linking, Alert } from 'react-native';
+import { Text, Card, Button, useTheme, Chip, Divider, Avatar, IconButton, Portal, Dialog } from 'react-native-paper';
 import { useBilling } from '../context/BillingContext';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 
@@ -10,6 +10,53 @@ export const DashboardScreen = ({ navigation }: any) => {
   const { width } = useWindowDimensions();
 
   const isSmallScreen = width < 360;
+
+  // Help & Support dialog state
+  const [helpVisible, setHelpVisible] = useState(false);
+
+  // Set Help Icon in Header Right Dynamically
+  React.useEffect(() => {
+    navigation.setOptions({
+      headerRight: () => (
+        <IconButton
+          icon="help-circle-outline"
+          iconColor={theme.colors.onPrimary}
+          size={24}
+          onPress={() => setHelpVisible(true)}
+          style={{ marginRight: 8 }}
+        />
+      ),
+    });
+  }, [navigation, theme]);
+
+  const handleCallSupport = () => {
+    const phoneNumber = '+918149730773';
+    const url = Platform.OS === 'android' ? `tel:${phoneNumber}` : `telprompt:${phoneNumber}`;
+    Linking.canOpenURL(url)
+      .then((supported) => {
+        if (supported) {
+          Linking.openURL(url);
+        } else {
+          Alert.alert('Error', 'Phone dialer is not supported on this device.');
+        }
+      })
+      .catch(() => Alert.alert('Error', 'An error occurred while calling.'));
+  };
+
+  const handleEmailSupport = () => {
+    const email = 'support@parchiwala.com';
+    const subject = encodeURIComponent('Parchiwala App Query');
+    const url = `mailto:${email}?subject=${subject}`;
+    Linking.canOpenURL(url)
+      .then((supported) => {
+        if (supported) {
+          Linking.openURL(url);
+        } else {
+          Alert.alert('Error', 'Email app is not supported on this device.');
+        }
+      })
+      .catch(() => Alert.alert('Error', 'An error occurred while opening email.'));
+  };
 
   // Calculations
   const totalInvoices = invoices.length;
@@ -232,6 +279,43 @@ export const DashboardScreen = ({ navigation }: any) => {
         </View>
       </View>
 
+      {/* Help & Support Dialog */}
+      <Portal>
+        <Dialog visible={helpVisible} onDismiss={() => setHelpVisible(false)} style={styles.dialog}>
+          <Dialog.Title style={styles.boldText}>Need Help?</Dialog.Title>
+          <Dialog.Content>
+            <Text variant="bodyMedium" style={{ marginBottom: 16, color: theme.colors.onSurfaceVariant }}>
+              If you have any queries, issues, or custom feature requests, please contact our support team.
+            </Text>
+
+            <TouchableOpacity
+              style={[styles.contactRow, { backgroundColor: theme.colors.primaryContainer }]}
+              onPress={handleCallSupport}
+            >
+              <Avatar.Icon size={36} icon="phone" style={{ backgroundColor: theme.colors.primary }} color={theme.colors.onPrimary} />
+              <View style={{ marginLeft: 12, flex: 1 }}>
+                <Text variant="labelMedium" style={{ color: theme.colors.onPrimaryContainer }}>Call Support</Text>
+                <Text variant="titleMedium" style={[styles.boldText, { color: theme.colors.onPrimaryContainer }]}>+91 8149730773</Text>
+              </View>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.contactRow, { backgroundColor: theme.colors.secondaryContainer, marginTop: 12 }]}
+              onPress={handleEmailSupport}
+            >
+              <Avatar.Icon size={36} icon="email" style={{ backgroundColor: theme.colors.secondary }} color={theme.colors.onSecondary} />
+              <View style={{ marginLeft: 12, flex: 1 }}>
+                <Text variant="labelMedium" style={{ color: theme.colors.onSecondaryContainer }}>Email Support</Text>
+                <Text variant="titleMedium" style={[styles.boldText, { color: theme.colors.onSecondaryContainer }]}>support@parchiwala.com</Text>
+              </View>
+            </TouchableOpacity>
+          </Dialog.Content>
+          <Dialog.Actions>
+            <Button onPress={() => setHelpVisible(false)}>Close</Button>
+          </Dialog.Actions>
+        </Dialog>
+      </Portal>
+
       <View style={{ height: 20 }} />
     </ScrollView>
   );
@@ -341,5 +425,15 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '500',
     letterSpacing: 0.5,
+  },
+  contactRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+    borderRadius: 12,
+  },
+  dialog: {
+    borderRadius: 16,
+    backgroundColor: '#FFFFFF',
   },
 });

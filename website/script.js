@@ -115,7 +115,7 @@ const screenTemplates = {
       <div class="app-ticket-center">
         <strong>GUPTA GENERAL STORE</strong><br>
         Shop 12, Main Market, Mumbai<br>
-        Ph: 9876543210
+        Ph: 918149730773
       </div>
       <div class="app-ticket-divider"></div>
       <div class="app-ticket-row">
@@ -223,7 +223,7 @@ const screenTemplates = {
     </div>
     <div class="app-customer-card">
       <div class="app-customer-name">Anjali Verma</div>
-      <div class="app-customer-phone">📞 +91 98765 43210</div>
+      <div class="app-customer-phone">📞 +91 8149730773</div>
       <div style="display:flex; justify-content:space-between; margin-top:6px; font-size:10px; color:var(--color-primary);">
         <span>Bills: 5</span>
         <span>Balance: ₹120.00 Due</span>
@@ -273,13 +273,13 @@ const simInventory = [
 function initSimulatorItems() {
   const container = document.getElementById('sim-items-container');
   if (!container) return;
-  
+
   container.innerHTML = '';
   simInventory.forEach((item, index) => {
     const row = document.createElement('div');
     row.className = `sim-item-row ${item.active ? 'selected' : ''}`;
     row.id = `sim-row-${item.id}`;
-    
+
     row.innerHTML = `
       <div class="sim-item-info">
         <input type="checkbox" class="sim-item-checkbox" id="check-${item.id}" ${item.active ? 'checked' : ''} onchange="toggleSimItem('${item.id}')">
@@ -292,7 +292,7 @@ function initSimulatorItems() {
         <button class="counter-btn" onclick="updateItemCount('${item.id}', 1)">+</button>
       </div>
     `;
-    
+
     container.appendChild(row);
   });
 }
@@ -301,12 +301,12 @@ function initSimulatorItems() {
 function toggleSimItem(itemId) {
   const item = simInventory.find(i => i.id === itemId);
   if (!item) return;
-  
+
   item.active = !item.active;
-  
+
   const row = document.getElementById(`sim-row-${itemId}`);
   const checkbox = document.getElementById(`check-${itemId}`);
-  
+
   if (item.active) {
     row.classList.add('selected');
     checkbox.checked = true;
@@ -320,10 +320,10 @@ function toggleSimItem(itemId) {
 function updateItemCount(itemId, delta) {
   const item = simInventory.find(i => i.id === itemId);
   if (!item || !item.active) return;
-  
+
   item.count += delta;
   if (item.count < 1) item.count = 1;
-  
+
   const counterVal = document.getElementById(`val-${itemId}`);
   if (counterVal) {
     counterVal.innerText = item.count;
@@ -338,23 +338,23 @@ function playPrintSound() {
     const AudioContext = window.AudioContext || window.webkitAudioContext;
     if (!AudioContext) return;
     const ctx = new AudioContext();
-    
+
     const playLineBeep = (time, duration, frequency, type = 'square') => {
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
-      
+
       osc.type = type;
       osc.frequency.setValueAtTime(frequency, time);
-      
+
       // Fast pitch sweep down to simulate motor steps
       osc.frequency.exponentialRampToValueAtTime(frequency * 0.4, time + duration);
-      
+
       gain.gain.setValueAtTime(0.04, time);
       gain.gain.exponentialRampToValueAtTime(0.001, time + duration);
-      
+
       osc.connect(gain);
       gain.connect(ctx.destination);
-      
+
       osc.start(time);
       osc.stop(time + duration);
     };
@@ -362,19 +362,19 @@ function playPrintSound() {
     // Print block timeline
     const startTime = ctx.currentTime;
     let timeOffset = 0;
-    
+
     // Simulate lines printing. Each line is a series of motor clicks + head buzz
     for (let i = 0; i < 28; i++) {
       // Line feed noise
       const lineDuration = 0.08;
       const spacing = 0.1;
       const playTime = startTime + timeOffset;
-      
+
       // Step click
       playLineBeep(playTime, 0.01, 80, 'sine');
       // Thermal heating dot buzz
       playLineBeep(playTime + 0.01, lineDuration - 0.02, Math.random() * 200 + 400, 'square');
-      
+
       timeOffset += spacing;
     }
   } catch (e) {
@@ -403,7 +403,7 @@ function wrapText(text, width) {
   const words = text.split(' ');
   const lines = [];
   let currentLine = '';
-  
+
   for (const word of words) {
     if ((currentLine + word).length >= width) {
       lines.push(currentLine.trim());
@@ -423,19 +423,19 @@ function formatTabularRow(name, qty, rate, total, width) {
   let qtyWidth = 5;
   let rateWidth = 7;
   let totalWidth = 8;
-  
+
   if (width === 48) {
     nameWidth = 24;
     qtyWidth = 6;
     rateWidth = 8;
     totalWidth = 10;
   }
-  
+
   const namePart = name.padEnd(nameWidth, ' ').substring(0, nameWidth);
   const qtyPart = qty.padStart(qtyWidth, ' ').substring(0, qtyWidth);
   const ratePart = rate.padStart(rateWidth, ' ').substring(0, rateWidth);
   const totalPart = total.padStart(totalWidth, ' ').substring(0, totalWidth);
-  
+
   return namePart + qtyPart + ratePart + totalPart;
 }
 
@@ -447,125 +447,125 @@ function handleSimulatePrint() {
   const addressVal = document.getElementById('sim-shop-address').value || 'SHOP ADDRESS';
   const phoneVal = document.getElementById('sim-shop-phone').value || '0000000000';
   const sloganVal = document.getElementById('sim-slogan').value || 'Thank You Visit Again!';
-  
+
   // Set width constraints matching 58mm (32 chars) / 80mm (48 chars)
   const width = printWidthVal === '80mm' ? 48 : 32;
-  
+
   // Collect active items
   const billedItems = simInventory.filter(item => item.active);
-  
+
   if (billedItems.length === 0) {
     alert("Please select at least one item to bill.");
     return;
   }
-  
+
   // Prevent double prints or interferences
   const printButton = document.getElementById('btn-simulate-print');
   const printerBody = document.querySelector('.printer-visual-body');
   const ledStatus = document.getElementById('led-status');
   const receiptContainer = document.getElementById('printed-receipt-container');
-  
+
   printButton.disabled = true;
   printButton.innerHTML = `<span class="icon">⌛</span> Printing Receipt...`;
-  
+
   // Play printing audio
   playPrintSound();
-  
+
   // Start printer jiggle animation
   printerBody.classList.add('printing');
-  
+
   // Blinking orange light showing printing is in progress
   ledStatus.className = 'led led-status blinking-orange';
-  
+
   // Reset receipt container
   receiptContainer.classList.remove('printed');
   receiptContainer.classList.remove('torn');
   receiptContainer.style.maxHeight = '0px';
   receiptContainer.innerHTML = `<div class="receipt-loading-line">Formatting paper...</div>`;
-  
+
   // Render invoice layout
   const billLines = [];
-  
+
   // 1. Organization Header
   billLines.push(centerText(shopNameVal.toUpperCase(), width));
   const wrappedAddress = wrapText(addressVal, width);
   wrappedAddress.forEach(addrLine => billLines.push(centerText(addrLine, width)));
   billLines.push(centerText(`Ph: ${phoneVal}`, width));
-  
+
   if (isGstVal) {
     billLines.push(centerText(`GSTIN: 27AAPCP1024F1Z0`, width));
   }
-  
+
   billLines.push('-'.repeat(width));
-  
+
   // 2. Invoice Meta Info
   const randomInv = Math.floor(Math.random() * 9000) + 1000;
   billLines.push(`Bill No: P-${randomInv}`);
-  
+
   const now = new Date();
   const dateStr = now.toLocaleDateString();
   const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   billLines.push(`Date: ${dateStr} ${timeStr}`);
   billLines.push(`Cust: Walk-in Customer`);
   billLines.push('='.repeat(width));
-  
+
   // 3. Item List Header
   billLines.push(formatTabularRow('Item Name', 'Qty', 'Rate', 'Total', width));
   billLines.push('-'.repeat(width));
-  
+
   // 4. Item List
   let subtotal = 0;
   billedItems.forEach(item => {
     const itemTotal = item.price * item.count;
     subtotal += itemTotal;
-    
+
     // Format tabular columns
     const qtyStr = `${item.count} pc`;
     const rateStr = item.price.toFixed(2);
     const totalStr = itemTotal.toFixed(2);
-    
+
     billLines.push(formatTabularRow(item.name, qtyStr, rateStr, totalStr, width));
   });
-  
+
   billLines.push('-'.repeat(width));
-  
+
   // 5. Totals
   let grandTotal = subtotal;
   let cgst = 0;
   let sgst = 0;
-  
+
   if (isGstVal) {
     // 18% inclusive GST
     const baseAmount = subtotal / 1.18;
     const gstTotal = subtotal - baseAmount;
     cgst = gstTotal / 2;
     sgst = gstTotal / 2;
-    
+
     billLines.push(formatRow('Base Amount:', baseAmount.toFixed(2), width));
     billLines.push(formatRow('CGST (9%):', cgst.toFixed(2), width));
     billLines.push(formatRow('SGST (9%):', sgst.toFixed(2), width));
   } else {
     billLines.push(formatRow('Subtotal:', subtotal.toFixed(2), width));
   }
-  
+
   billLines.push('='.repeat(width));
   billLines.push(formatRow('GRAND TOTAL:', `Rs ${grandTotal.toFixed(2)}`, width));
   billLines.push('='.repeat(width));
-  
+
   billLines.push(`Pay Mode: Cash`);
   billLines.push(`Status:   PAID`);
   billLines.push('-'.repeat(width));
-  
+
   // 6. Bottom Slogan / Footer
   const wrappedSlogan = wrapText(sloganVal, width);
   wrappedSlogan.forEach(slogLine => billLines.push(centerText(slogLine, width)));
-  
+
   billLines.push('');
   billLines.push(centerText('print by Parchiwala', width));
   billLines.push('');
   billLines.push(''); // Feed margin lines
   billLines.push('');
-  
+
   // Compile final print template HTML
   const finalReceiptHTML = `
     <pre style="margin: 0; white-space: pre-wrap; font-family: inherit; font-size: inherit; text-align: left;">${billLines.join('\n')}</pre>
@@ -573,20 +573,20 @@ function handleSimulatePrint() {
       ✂️ CLICK RECEIPT TO TEAR OFF
     </div>
   `;
-  
+
   // Animate process
   setTimeout(() => {
     // Stop printer vibration
     printerBody.classList.remove('printing');
-    
+
     // Set status LED back to solid green (idle)
     ledStatus.className = 'led led-status active-blue';
-    
+
     // Insert text and feed paper
     receiptContainer.innerHTML = finalReceiptHTML;
     receiptContainer.classList.add('printed');
     receiptContainer.style.maxHeight = '900px';
-    
+
     // Reset Print Button
     printButton.disabled = false;
     printButton.innerHTML = `<span class="icon">🔌</span> Print Bill Now`;
@@ -597,10 +597,10 @@ function handleSimulatePrint() {
 function setupTearMechanism() {
   const receiptContainer = document.getElementById('printed-receipt-container');
   if (!receiptContainer) return;
-  
+
   receiptContainer.addEventListener('click', () => {
     if (!receiptContainer.classList.contains('printed')) return;
-    
+
     // Play short tear noise
     try {
       const AudioContext = window.AudioContext || window.webkitAudioContext;
@@ -618,18 +618,18 @@ function setupTearMechanism() {
         osc.start();
         osc.stop(ctx.currentTime + 0.15);
       }
-    } catch (e) {}
-    
+    } catch (e) { }
+
     // Add fly-away animation class
     receiptContainer.classList.add('torn');
-    
+
     setTimeout(() => {
       // Clear contents and reset height
       receiptContainer.classList.remove('printed');
       receiptContainer.classList.remove('torn');
       receiptContainer.style.maxHeight = '0px';
       receiptContainer.innerHTML = '';
-      
+
       const ledStatus = document.getElementById('led-status');
       ledStatus.className = 'led led-status'; // Turn off status light (idle empty)
     }, 600);
@@ -640,23 +640,23 @@ function setupTearMechanism() {
 function setupWaitlistForm() {
   const form = document.getElementById('waitlist-signup-form');
   const feedback = document.getElementById('waitlist-feedback');
-  
+
   if (!form || !feedback) return;
-  
+
   form.addEventListener('submit', (e) => {
     e.preventDefault();
-    
+
     const email = document.getElementById('waitlist-email').value;
     const phone = document.getElementById('waitlist-phone').value;
-    
+
     feedback.className = 'form-feedback-message';
     feedback.innerText = 'Registering your shop...';
-    
+
     // Save locally to mimic DB registration
     const signups = JSON.parse(localStorage.getItem('parchiwala_waitlist') || '[]');
     signups.push({ email, phone, timestamp: new Date().toISOString() });
     localStorage.setItem('parchiwala_waitlist', JSON.stringify(signups));
-    
+
     setTimeout(() => {
       feedback.className = 'form-feedback-message form-feedback-success';
       feedback.innerText = `Success! Registered. Free shipping reserved for ${phone}!`;
@@ -669,12 +669,12 @@ function setupWaitlistForm() {
 function setupNavbarToggle() {
   const toggle = document.getElementById('mobile-menu-toggle');
   const navMenu = document.getElementById('nav-menu-bar');
-  
+
   if (!toggle || !navMenu) return;
-  
+
   toggle.addEventListener('click', () => {
     toggle.classList.toggle('active');
-    
+
     // Simple inline display switch for responsive menu
     if (navMenu.style.display === 'flex') {
       navMenu.style.display = 'none';
@@ -708,22 +708,22 @@ function setupNavbarToggle() {
 window.addEventListener('DOMContentLoaded', () => {
   // Initialize screens showcase frame
   switchScreen('dashboard');
-  
+
   // Initialize simulator items
   initSimulatorItems();
-  
+
   // Set up print sound / printing handler
   const printBtn = document.getElementById('btn-simulate-print');
   if (printBtn) {
     printBtn.addEventListener('click', handleSimulatePrint);
   }
-  
+
   // Set up tear/remove paper interaction
   setupTearMechanism();
-  
+
   // Set up waitlist signup submission
   setupWaitlistForm();
-  
+
   // Set up mobile menu toggle
   setupNavbarToggle();
 });

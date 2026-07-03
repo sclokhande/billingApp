@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { StyleSheet, View, FlatList, Alert, ScrollView, useWindowDimensions } from 'react-native';
+import { StyleSheet, View, FlatList, Alert, ScrollView, useWindowDimensions, Platform } from 'react-native';
 import {
   Text,
   Card,
@@ -25,7 +25,7 @@ const UNIT_PRESETS = [
 ];
 
 export const ProductsScreen = () => {
-  const theme = useTheme();
+  const theme = useTheme() as any;
   const { products, saveProduct, deleteProduct, organization, isLoading } = useBilling();
   const { width } = useWindowDimensions();
 
@@ -48,6 +48,7 @@ export const ProductsScreen = () => {
   const [price, setPrice] = useState('');
   const [taxRate, setTaxRate] = useState('18'); // Default 18% GST
   const [unit, setUnit] = useState('Pcs');
+  const [stockQuantity, setStockQuantity] = useState('0');
 
   const openAddDialog = () => {
     setEditingProduct(null);
@@ -56,6 +57,7 @@ export const ProductsScreen = () => {
     setPrice('');
     setTaxRate('18');
     setUnit('Pcs');
+    setStockQuantity('0');
     setDialogVisible(true);
   };
 
@@ -66,6 +68,7 @@ export const ProductsScreen = () => {
     setPrice(product.price.toString());
     setTaxRate(product.taxRate.toString());
     setUnit(product.unit || 'Pcs');
+    setStockQuantity((product.stockQuantity ?? 0).toString());
     setDialogVisible(true);
   };
 
@@ -79,6 +82,11 @@ export const ProductsScreen = () => {
       Alert.alert('Validation Error', 'Please enter a valid product price.');
       return;
     }
+    const stockVal = parseFloat(stockQuantity);
+    if (isNaN(stockVal) || stockVal < 0) {
+      Alert.alert('Validation Error', 'Please enter a valid stock quantity.');
+      return;
+    }
 
     try {
       const productData: Product = {
@@ -88,6 +96,7 @@ export const ProductsScreen = () => {
         price: priceVal,
         taxRate: parseFloat(taxRate) || 0,
         unit: unit.trim() || 'Pcs',
+        stockQuantity: stockVal,
       };
 
       await saveProduct(productData);
@@ -177,6 +186,24 @@ export const ProductsScreen = () => {
                     <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
                       GST Tax: {item.taxRate}%
                     </Text>
+                    <Text 
+                      variant="bodySmall" 
+                      style={{ 
+                        fontWeight: 'bold', 
+                        color: item.stockQuantity <= 0 
+                          ? theme.colors.error 
+                          : item.stockQuantity <= 5 
+                            ? theme.colors.warning 
+                            : theme.colors.success,
+                        marginTop: 4 
+                      }}
+                    >
+                      {item.stockQuantity <= 0 
+                        ? 'Out of Stock' 
+                        : item.stockQuantity <= 5 
+                          ? `Low Stock: ${item.stockQuantity} ${item.unit || 'Pcs'}`
+                          : `Stock: ${item.stockQuantity} ${item.unit || 'Pcs'}`}
+                    </Text>
                   </View>
                   <View style={styles.cardActions}>
                     <IconButton icon="pencil-outline" size={20} onPress={() => openEditDialog(item)} />
@@ -217,11 +244,21 @@ export const ProductsScreen = () => {
               <TextInput
                 label="Price (Rs.) *"
                 value={price}
-                onChangeText={(text) => setPrice(text.replace(/[^0-9.]/g, ''))}
-                keyboardType="numeric"
+                onChangeText={(text) => setPrice(text.replace(/,/g, '.').replace(/[^0-9.]/g, ''))}
+                keyboardType={Platform.OS === 'ios' && __DEV__ ? 'default' : 'decimal-pad'}
                 mode="outlined"
                 style={styles.input}
                 left={<TextInput.Icon icon="currency-inr" />}
+              />
+
+              <TextInput
+                label="Stock Quantity Available *"
+                value={stockQuantity}
+                onChangeText={(text) => setStockQuantity(text.replace(/,/g, '.').replace(/[^0-9.]/g, ''))}
+                keyboardType={Platform.OS === 'ios' && __DEV__ ? 'default' : 'decimal-pad'}
+                mode="outlined"
+                style={styles.input}
+                left={<TextInput.Icon icon="archive-outline" />}
               />
 
               <TextInput

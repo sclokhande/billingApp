@@ -133,6 +133,8 @@ export const BillingProvider: React.FC<{ children: React.ReactNode }> = ({ child
       await dbOps.saveInvoice(invoice, items);
       const updatedInvs = await dbOps.getInvoices();
       setInvoices(updatedInvs);
+      const updatedProds = await dbOps.getProducts();
+      setProducts(updatedProds);
     } finally {
       setIsLoading(false);
     }

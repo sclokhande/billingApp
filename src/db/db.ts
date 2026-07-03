@@ -80,7 +80,8 @@ export const initDB = async (): Promise<string> => {
             description TEXT,
             price REAL,
             taxRate REAL,
-            unit TEXT
+            unit TEXT,
+            stockQuantity REAL DEFAULT 0
           );
         `);
         await dbInstance.executeSql(`
@@ -130,6 +131,9 @@ export const initDB = async (): Promise<string> => {
         } catch (_) {}
         try {
           await dbInstance.executeSql('ALTER TABLE organization ADD COLUMN printWidth TEXT;');
+        } catch (_) {}
+        try {
+          await dbInstance.executeSql('ALTER TABLE products ADD COLUMN stockQuantity REAL DEFAULT 0;');
         } catch (_) {}
 
         console.log('[DB] SQLite database tables initialized.');
