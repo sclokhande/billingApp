@@ -258,9 +258,7 @@ export const formatThermalReceipt = (
   
   lines.push('');
   lines.push(centerText('print by Parchiwala', width));
-  lines.push('');
-  lines.push('');
-  lines.push(''); // Feeding lines for tear off
+  lines.push(''); // Reduced trailing lines to prevent too long paper feed
 
   return lines.join('\n');
 };

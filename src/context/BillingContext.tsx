@@ -2,6 +2,8 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import { Organization, Product, Customer, Invoice } from '../db/types';
 import { initDB, getDBMode } from '../db/db';
 import * as dbOps from '../db/operations';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { BluetoothDevice, connectBluetoothPrinter, disconnectBluetoothPrinter, printReceiptRaw, setConnectedPrinterState, isBluetoothEnabled } from '../services/bluetoothPrinterService';
 
 interface BillingContextProps {
   dbMode: string;
@@ -23,6 +25,10 @@ interface BillingContextProps {
   updateInvoicePaymentStatus: (id: string, status: 'Paid' | 'Unpaid') => Promise<void>;
   exportData: () => Promise<string>;
   importData: (jsonStr: string) => Promise<void>;
+  connectedPrinter: BluetoothDevice | null;
+  connectPrinter: (device: BluetoothDevice) => Promise<boolean>;
+  disconnectPrinter: () => Promise<void>;
+  printReceipt: (text: string) => Promise<boolean>;
 }
 
 const BillingContext = createContext<BillingContextProps | undefined>(undefined);
@@ -34,6 +40,7 @@ export const BillingProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [invoices, setInvoices] = useState<dbOps.InvoiceWithCustomerName[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [connectedPrinter, setConnectedPrinter] = useState<BluetoothDevice | null>(null);
 
   // Initialize DB and fetch data on mount
   useEffect(() => {
@@ -48,6 +55,24 @@ export const BillingProvider: React.FC<{ children: React.ReactNode }> = ({ child
         
         // Load operational data
         await loadData();
+
+        // Load connected printer configuration from AsyncStorage
+        const savedPrinter = await AsyncStorage.getItem('connected_printer');
+        if (savedPrinter) {
+          try {
+            const parsed = JSON.parse(savedPrinter);
+            const btEnabled = await isBluetoothEnabled();
+            if (btEnabled) {
+              setConnectedPrinter(parsed);
+              setConnectedPrinterState(parsed); // Sync printer state with service
+            } else {
+              setConnectedPrinter(null);
+              setConnectedPrinterState(null);
+            }
+          } catch (e) {
+            console.warn('Failed to restore saved printer state:', e);
+          }
+        }
       } catch (error) {
         console.error('Database startup failure:', error);
       } finally {
@@ -195,6 +220,40 @@ export const BillingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
   };
 
+  const connectPrinter = async (device: BluetoothDevice): Promise<boolean> => {
+    try {
+      const success = await connectBluetoothPrinter(device);
+      if (success) {
+        setConnectedPrinter({ ...device, connected: true });
+        await AsyncStorage.setItem('connected_printer', JSON.stringify({ ...device, connected: true }));
+        return true;
+      }
+      return false;
+    } catch (e) {
+      console.error('connectPrinter error:', e);
+      return false;
+    }
+  };
+
+  const disconnectPrinter = async () => {
+    try {
+      await disconnectBluetoothPrinter();
+      setConnectedPrinter(null);
+      await AsyncStorage.removeItem('connected_printer');
+    } catch (e) {
+      console.error('disconnectPrinter error:', e);
+    }
+  };
+
+  const printReceipt = async (text: string): Promise<boolean> => {
+    try {
+      return await printReceiptRaw(text);
+    } catch (e) {
+      console.error('printReceipt error:', e);
+      return false;
+    }
+  };
+
   return (
     <BillingContext.Provider
       value={{
@@ -217,6 +276,10 @@ export const BillingProvider: React.FC<{ children: React.ReactNode }> = ({ child
         updateInvoicePaymentStatus,
         exportData,
         importData,
+        connectedPrinter,
+        connectPrinter,
+        disconnectPrinter,
+        printReceipt,
       }}
     >
       {children}

@@ -19,9 +19,9 @@ import { useBilling } from '../context/BillingContext';
 import { seedDatabase } from '../db/operations';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 
-export const ProfileScreen = () => {
+export const ProfileScreen = ({ navigation }: any) => {
   const theme = useTheme() as any;
-  const { organization, updateOrgProfile, clearAllData, clearInvoicesOnly, dbMode, exportData, importData, isLoading } = useBilling();
+  const { organization, updateOrgProfile, clearAllData, clearInvoicesOnly, dbMode, exportData, importData, isLoading, connectedPrinter } = useBilling();
   const { width } = useWindowDimensions();
 
   // Form states
@@ -324,6 +324,27 @@ export const ProfileScreen = () => {
                 },
               ]}
             />
+
+            <Divider style={{ marginVertical: 12 }} />
+
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+              <View style={{ flex: 1, marginRight: 8 }}>
+                <Text variant="titleMedium" style={styles.boldText}>
+                  Bluetooth Printer
+                </Text>
+                <Text variant="bodySmall" style={{ color: connectedPrinter ? '#4CAF50' : theme.colors.outline, fontWeight: connectedPrinter ? 'bold' : 'normal' }}>
+                  {connectedPrinter ? `Connected: ${connectedPrinter.name}` : 'No printer connected'}
+                </Text>
+              </View>
+              <Button 
+                mode="outlined" 
+                icon="bluetooth" 
+                onPress={() => navigation.navigate('PrinterConnect')}
+                compact
+              >
+                Configure
+              </Button>
+            </View>
 
             <Button
               mode="contained"

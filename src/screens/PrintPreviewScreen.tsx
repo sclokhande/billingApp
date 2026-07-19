@@ -10,7 +10,7 @@ import { InvoiceItem } from '../db/types';
 export const PrintPreviewScreen = ({ route, navigation }: any) => {
   const { invoiceId } = route.params;
   const theme = useTheme() as any;
-  const { organization, customers } = useBilling();
+  const { organization, customers, connectedPrinter, printReceipt } = useBilling();
   const { width: screenWidth } = useWindowDimensions();
   const insets = useSafeAreaInsets();
 
@@ -46,22 +46,38 @@ export const PrintPreviewScreen = ({ route, navigation }: any) => {
     fetchDetails();
   }, [invoiceId]);
 
-  const handlePrint = () => {
-    setPrintStatus('connecting');
+  const handlePrint = async () => {
+    if (!connectedPrinter) {
+      Alert.alert(
+        'No Printer Connected',
+        'You need to connect a Bluetooth thermal printer to print this receipt. Would you like to connect one now?',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Connect Printer',
+            onPress: () => navigation.navigate('PrinterConnect')
+          }
+        ]
+      );
+      return;
+    }
 
-    // Simulate Bluetooth printing connection & transmission
-    setTimeout(() => {
+    try {
+      setPrintStatus('connecting');
+      await new Promise<void>((resolve) => setTimeout(() => resolve(), 800));
+
       setPrintStatus('printing');
-      
-      // Log formatted payload to console for developer integration
-      console.log('=== ESC/POS THERMAL PRINTER PAYLOAD ===');
-      console.log(receiptText);
-      console.log('=======================================');
-
-      setTimeout(() => {
+      const success = await printReceipt(receiptText);
+      if (success) {
         setPrintStatus('success');
-      }, 1500);
-    }, 1000);
+      } else {
+        setPrintStatus('idle');
+        Alert.alert('Print Error', 'Failed to send print payload to the device. Please verify your printer connection.');
+      }
+    } catch (e) {
+      setPrintStatus('idle');
+      Alert.alert('Error', 'An unexpected printing error occurred.');
+    }
   };
 
   const handleShare = async () => {
@@ -85,7 +101,7 @@ export const PrintPreviewScreen = ({ route, navigation }: any) => {
 
   const is80mm = organization.printWidth === '80mm';
   const maxPaperWidth = screenWidth - 32; // 16dp padding on both sides
-  
+
   let fontSize = is80mm ? 10 : 12.5;
   let charWidth = fontSize * 0.62; // Monospaced font aspect ratio with safety padding
   let paperWidth = charWidth * (is80mm ? 48 : 32) + 24; // text width + horizontal padding (12 * 2)
@@ -101,15 +117,15 @@ export const PrintPreviewScreen = ({ route, navigation }: any) => {
   return (
     <View style={[styles.container, { backgroundColor: '#333333' }]}>
       <Text style={styles.titleText}>Receipt Print Preview ({organization.printWidth || '58mm'})</Text>
-      
+
       <ScrollView contentContainerStyle={styles.scrollContent}>
         {/* Realistic receipt paper representation */}
         <View style={[styles.receiptPaper, { width: paperWidth }]}>
           {/* Top Zig Zag tear indicator */}
           <View style={styles.tearIndicator} />
-          
+
           <Text style={[styles.receiptContent, { fontSize }]}>{receiptText}</Text>
-          
+
           {/* Bottom Zig Zag tear indicator */}
           <View style={styles.tearIndicator} />
         </View>

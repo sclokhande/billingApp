@@ -34,7 +34,11 @@
 		<true/>
 	</dict>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string></string>
+	<string>Parchiwala needs location access to search for nearby Bluetooth thermal printers.</string>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>Parchiwala needs Bluetooth access to discover and print to thermal receipt printers.</string>
+	<key>NSBluetoothPeripheralUsageDescription</key>
+	<string>Parchiwala needs Bluetooth access to connect to thermal receipt printers.</string>
 	<key>RCTNewArchEnabled</key>
 	<true/>
 	<key>UIAppFonts</key>
