@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { StyleSheet, View, ScrollView, Alert, useWindowDimensions } from 'react-native';
-import { Text, Card, Button, Divider, ActivityIndicator, useTheme } from 'react-native-paper';
+import { Text, Card, Button, Divider, ActivityIndicator, useTheme, Portal } from 'react-native-paper';
 import { useBilling } from '../context/BillingContext';
 import { getInvoiceById, getInvoiceItems } from '../db/operations';
 import { InvoiceItem } from '../db/types';
@@ -8,7 +8,7 @@ import { InvoiceItem } from '../db/types';
 export const InvoiceDetailScreen = ({ route, navigation }: any) => {
   const { invoiceId } = route.params;
   const theme = useTheme() as any;
-  const { organization, deleteInvoice, updateInvoicePaymentStatus } = useBilling();
+  const { organization, deleteInvoice, updateInvoicePaymentStatus, isLoading, verifyPrinterConnectionOrRedirect } = useBilling();
   const { width } = useWindowDimensions();
 
   const [invoice, setInvoice] = useState<any>(null);
@@ -252,7 +252,12 @@ export const InvoiceDetailScreen = ({ route, navigation }: any) => {
           <Button
             mode="contained"
             icon="printer"
-            onPress={() => navigation.navigate('PrintPreview', { invoiceId })}
+            onPress={async () => {
+              const isReady = await verifyPrinterConnectionOrRedirect(navigation);
+              if (isReady) {
+                navigation.navigate('PrintPreview', { invoiceId, invoice, items });
+              }
+            }}
             style={styles.btn}
           >
             Print
@@ -269,6 +274,22 @@ export const InvoiceDetailScreen = ({ route, navigation }: any) => {
         </View>
       </View>
       <View style={{ height: 40 }} />
+
+      {/* Loading Overlay Spinner */}
+      {isLoading && (
+        <Portal>
+          <View style={styles.loadingOverlay}>
+            <Card style={styles.loadingCard} mode="elevated">
+              <Card.Content style={styles.loadingContent}>
+                <ActivityIndicator size="large" color={theme.colors.primary} />
+                <Text style={{ marginTop: 12, fontWeight: '500' }} variant="bodyMedium">
+                  Updating invoice record...
+                </Text>
+              </Card.Content>
+            </Card>
+          </View>
+        </Portal>
+      )}
     </ScrollView>
   );
 };
@@ -277,6 +298,22 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     padding: 16,
+  },
+  loadingOverlay: {
+    ...StyleSheet.absoluteFill,
+    backgroundColor: 'rgba(0, 0, 0, 0.4)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 9999,
+  },
+  loadingCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 8,
+  },
+  loadingContent: {
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   center: {
     flex: 1,

@@ -10,6 +10,7 @@ export interface Organization {
   currency: string;
   slogan: string;
   printWidth?: string; // '58mm' | '80mm'
+  securityPin?: string;
 }
 
 export interface Product {

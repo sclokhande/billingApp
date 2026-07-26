@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { StyleSheet, View, ScrollView, Alert, Share, useWindowDimensions } from 'react-native';
+import { StyleSheet, View, ScrollView, Alert, Share, useWindowDimensions, NativeModules, Platform, TurboModuleRegistry } from 'react-native';
 import {
   Text,
   TextInput,
@@ -13,6 +13,7 @@ import {
   Dialog,
   SegmentedButtons,
   ActivityIndicator,
+  Avatar,
   RadioButton,
 } from 'react-native-paper';
 import { useBilling } from '../context/BillingContext';
@@ -27,12 +28,11 @@ export const ProfileScreen = ({ navigation }: any) => {
   // Form states
   const [name, setName] = useState('');
   const [address, setAddress] = useState('');
-  const [phone, setPhone] = useState('');
   const [mobile, setMobile] = useState('');
   const [email, setEmail] = useState('');
   const [gstNumber, setGstNumber] = useState('');
   const [showGstOnBill, setShowGstOnBill] = useState(false);
-  const [currency, setCurrency] = useState('₹');
+  const [currency, setCurrency] = useState('Rs.');
   const [slogan, setSlogan] = useState('Thank You Visit again');
   const [printWidth, setPrintWidth] = useState<'58mm' | '80mm'>('58mm');
 
@@ -40,40 +40,170 @@ export const ProfileScreen = ({ navigation }: any) => {
   const [exportDialogVisible, setExportDialogVisible] = useState(false);
   const [importDialogVisible, setImportDialogVisible] = useState(false);
   const [exportJson, setExportJson] = useState('');
+  const [exportFilename, setExportFilename] = useState('');
   const [importJson, setImportJson] = useState('');
+  const [selectedFile, setSelectedFile] = useState<{
+    name: string;
+    size?: number;
+    jsonStr: string;
+    isValid: boolean;
+    errorMsg?: string;
+  } | null>(null);
 
   // Wipe Data states
   const [wipeDialogVisible, setWipeDialogVisible] = useState(false);
   const [wipeOption, setWipeOption] = useState<'invoices' | 'all'>('invoices');
 
+  // Master Admin Recovery PIN
+  const MASTER_ADMIN_PIN = 'SAR773355291';
+
+  // PIN Authentication & Recovery states
+  const [pinModalVisible, setPinModalVisible] = useState(false);
+  const [enteredPin, setEnteredPin] = useState('');
+  const [showPinSecret, setShowPinSecret] = useState(false);
+  const [pinActionPending, setPinActionPending] = useState<'export' | 'import' | 'wipe' | null>(null);
+
+  // Forgot PIN / Reset states
+  const [forgotPinDialogVisible, setForgotPinDialogVisible] = useState(false);
+  const [masterAdminInput, setMasterAdminInput] = useState('');
+  const [newPinInput, setNewPinInput] = useState('');
+  const [confirmNewPinInput, setConfirmNewPinInput] = useState('');
+  const [showMasterAdminSecret, setShowMasterAdminSecret] = useState(false);
+  const [showNewPinSecret, setShowNewPinSecret] = useState(false);
+
+  // Intercept Action with PIN Auth
+  const requestPinAuth = (action: 'export' | 'import' | 'wipe') => {
+    setEnteredPin('');
+    setShowPinSecret(false);
+    setPinActionPending(action);
+    setPinModalVisible(true);
+  };
+
+  const verifyPinAndExecute = () => {
+    const activePin = organization?.securityPin || '1234';
+    const trimmedInput = enteredPin.trim();
+    if (!trimmedInput) {
+      Alert.alert('PIN Required', 'Please enter your Security PIN.');
+      return;
+    }
+
+    if (trimmedInput === activePin || trimmedInput === MASTER_ADMIN_PIN) {
+      setPinModalVisible(false);
+      setEnteredPin('');
+      const action = pinActionPending;
+      setPinActionPending(null);
+
+      if (action === 'export') {
+        handleExport();
+      } else if (action === 'import') {
+        openImportDialog();
+      } else if (action === 'wipe') {
+        setWipeDialogVisible(true);
+      }
+    } else {
+      showToast('Invalid Security PIN. Please try again or tap Forgot PIN.', 'error');
+    }
+  };
+
+  const handleResetPinWithMasterKey = async () => {
+    if (masterAdminInput.trim() !== MASTER_ADMIN_PIN) {
+      Alert.alert('Authentication Failed', 'Invalid Master Admin Recovery Key.');
+      return;
+    }
+
+    const trimmedNewPin = newPinInput.trim();
+    if (!trimmedNewPin || trimmedNewPin.length < 4 || trimmedNewPin.length > 8) {
+      Alert.alert('Invalid PIN', 'New Security PIN must be between 4 and 8 digits.');
+      return;
+    }
+
+    if (trimmedNewPin !== confirmNewPinInput.trim()) {
+      Alert.alert('Mismatch', 'New Security PIN and Confirm PIN do not match.');
+      return;
+    }
+
+    try {
+      await updateOrgProfile({
+        ...organization,
+        securityPin: trimmedNewPin,
+      });
+      setForgotPinDialogVisible(false);
+      setMasterAdminInput('');
+      setNewPinInput('');
+      setConfirmNewPinInput('');
+      showToast('Security PIN reset successfully!', 'success');
+    } catch (e) {
+      showToast('Failed to reset Security PIN.', 'error');
+    }
+  };
+
   // Snackbar feedback
   const [snackbarVisible, setSnackbarVisible] = useState(false);
   const [snackbarMessage, setSnackbarMessage] = useState('');
+  const [snackbarType, setSnackbarType] = useState<'success' | 'error' | 'info'>('success');
+
+  const showToast = (msg: string, type: 'success' | 'error' | 'info' = 'success') => {
+    setSnackbarMessage(msg);
+    setSnackbarType(type);
+    setSnackbarVisible(true);
+  };
 
   // Sync form states with database values on mount or organization update
   useEffect(() => {
     if (organization) {
       setName(organization.name || '');
       setAddress(organization.address || '');
-      setPhone(organization.phone || '');
-      setMobile(organization.mobile || '');
+      setMobile(organization.mobile || organization.phone || '');
       setEmail(organization.email || '');
       setGstNumber(organization.gstNumber || '');
       setShowGstOnBill(!!organization.showGstOnBill);
-      setCurrency(organization.currency || '₹');
+      setCurrency(organization.currency || 'Rs.');
       setSlogan(organization.slogan || 'Thank You Visit again');
       setPrintWidth((organization.printWidth as '58mm' | '80mm') || '58mm');
     }
   }, [organization]);
 
   const handleSave = async () => {
-    if (!name.trim()) {
-      Alert.alert('Validation Error', 'Organization Name is required.');
+    const trimmedName = name.trim();
+    if (!trimmedName) {
+      Alert.alert('Validation Error', 'Store / Business Name is required.');
       return;
     }
-    if (!address.trim()) {
-      Alert.alert('Validation Error', 'Organization Address is required.');
+    if (trimmedName.length < 2) {
+      Alert.alert('Validation Error', 'Store / Business Name must be at least 2 characters.');
       return;
+    }
+
+    const trimmedAddress = address.trim();
+    if (!trimmedAddress) {
+      Alert.alert('Validation Error', 'Store Address is required.');
+      return;
+    }
+
+    const trimmedMobile = mobile.trim();
+    if (trimmedMobile) {
+      const phoneRegex = /^[0-9]{10}$/;
+      if (!phoneRegex.test(trimmedMobile)) {
+        Alert.alert('Validation Error', 'Please enter a valid 10-digit mobile number.');
+        return;
+      }
+    }
+
+    const trimmedEmail = email.trim();
+    if (trimmedEmail) {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(trimmedEmail)) {
+        Alert.alert('Validation Error', 'Please enter a valid email address.');
+        return;
+      }
+    }
+
+    const trimmedGst = gstNumber.trim().toUpperCase();
+    if (showGstOnBill && trimmedGst) {
+      if (trimmedGst.length !== 15 || !/^[A-Z0-9]{15}$/i.test(trimmedGst)) {
+        Alert.alert('Validation Error', 'Please enter a valid 15-character GSTIN number (e.g. 27AAAAA1111A1Z1).');
+        return;
+      }
     }
 
     try {
@@ -81,27 +211,27 @@ export const ProfileScreen = ({ navigation }: any) => {
         id: organization.id || 'default_org',
         name: name.trim(),
         address: address.trim(),
-        phone: phone.trim(),
+        phone: mobile.trim(),
         mobile: mobile.trim(),
         email: email.trim(),
         gstNumber: gstNumber.trim(),
         showGstOnBill,
-        currency: currency.trim() || '₹',
+        currency: 'Rs.',
         slogan: slogan.trim(),
         printWidth,
       });
 
-      setSnackbarMessage('Store profile updated successfully!');
-      setSnackbarVisible(true);
+      showToast('Store profile updated successfully!', 'success');
     } catch (e) {
-      Alert.alert('Error', 'Failed to update organization profile.');
+      showToast('Failed to update store profile. Please try again.', 'error');
     }
   };
 
   const handleExport = async () => {
     try {
-      const dataStr = await exportData();
-      setExportJson(dataStr);
+      const { jsonStr, filename } = await exportData();
+      setExportJson(jsonStr);
+      setExportFilename(filename);
       setExportDialogVisible(true);
     } catch (e) {
       Alert.alert('Error', 'Failed to export database.');
@@ -110,23 +240,143 @@ export const ProfileScreen = ({ navigation }: any) => {
 
   const handleShareBackup = async () => {
     try {
-      await Share.share({
-        message: exportJson,
-        title: 'Store Database Backup',
+      const filename = exportFilename || 'parchiwala_backup.json';
+      const RNFS = require('react-native-fs');
+      const filePath = `${RNFS.CachesDirectoryPath}/${filename}`;
+
+      // 1. Create and write physical .json file to app cache disk
+      await RNFS.writeFile(filePath, exportJson, 'utf8');
+
+      // 2. Open system share sheet with actual .json FILE document attachment
+      const RNShare = require('react-native-share').default;
+      await RNShare.open({
+        url: `file://${filePath}`,
+        type: 'application/json',
+        filename: filename,
+        title: filename,
+        failOnCancel: false,
       });
+    } catch (e: any) {
+      console.warn('[BackupShare] File share error:', e);
+      if (e && e.message && !e.message.includes('User did not share') && !e.message.includes('CANCELLED')) {
+        Alert.alert('Error', 'Failed to share backup JSON file.');
+      }
+    }
+  };
+
+  const openImportDialog = () => {
+    setSelectedFile(null);
+    setImportJson('');
+    setImportDialogVisible(true);
+  };
+
+  const handlePickDocument = async () => {
+    // Check if the native binary has the RNDocumentPicker TurboModule compiled in
+    const isNativePickerAvailable =
+      !!NativeModules.RNDocumentPicker ||
+      !!NativeModules.RNDocumentsPicker ||
+      !!(TurboModuleRegistry && typeof TurboModuleRegistry.get === 'function' && (TurboModuleRegistry.get('RNDocumentPicker') || TurboModuleRegistry.get('RNDocumentsPicker')));
+
+    if (!isNativePickerAvailable) {
+      Alert.alert(
+        'Native File Picker Unavailable',
+        'The document picker native module is not compiled into your running app binary yet. Please rebuild your app (npx react-native run-ios / run-android), or paste the JSON text directly below.',
+        [{ text: 'OK' }]
+      );
+      return;
+    }
+
+    let pick: any;
+    let types: any;
+    let isCancel: any;
+
+    try {
+      const RNDocuments = require('@react-native-documents/picker');
+      pick = RNDocuments.pick;
+      types = RNDocuments.types;
+      isCancel = RNDocuments.isCancel;
     } catch (e) {
-      Alert.alert('Error', 'Failed to share backup file.');
+      Alert.alert(
+        'Native Document Picker Unavailable',
+        'The document picker module requires rebuilding the native binary. You can paste the JSON backup file content manually in the text input below to restore your database.',
+        [{ text: 'OK' }]
+      );
+      return;
+    }
+
+    try {
+      const pickerResult = await pick({
+        type: [types.json || 'application/json', types.allFiles || '*/*'],
+      });
+
+      if (pickerResult && pickerResult.length > 0) {
+        const file = pickerResult[0];
+        const fileUri = file.uri;
+        const fileName = file.name || 'backup.json';
+        const fileSize = file.size || 0;
+
+        // Read file content
+        const response = await fetch(fileUri);
+        const text = await response.text();
+
+        // Validate JSON content
+        try {
+          const parsed = JSON.parse(text);
+          if (parsed && parsed.organization && Array.isArray(parsed.products) && Array.isArray(parsed.customers) && Array.isArray(parsed.invoices)) {
+            setSelectedFile({
+              name: fileName,
+              size: fileSize,
+              jsonStr: text,
+              isValid: true,
+            });
+            setImportJson(text);
+          } else {
+            setSelectedFile({
+              name: fileName,
+              size: fileSize,
+              jsonStr: text,
+              isValid: false,
+              errorMsg: 'File is not a valid Parchiwala JSON database backup.',
+            });
+            setImportJson('');
+          }
+        } catch (jsonErr) {
+          setSelectedFile({
+            name: fileName,
+            size: fileSize,
+            jsonStr: text,
+            isValid: false,
+            errorMsg: 'Selected file is not valid JSON format.',
+          });
+          setImportJson('');
+        }
+      }
+    } catch (err: any) {
+      if (isCancel && isCancel(err)) {
+        // User cancelled file selection
+        return;
+      }
+      if (err && err.message && (err.message.includes('RNDocumentPicker') || err.message.includes('TurboModuleRegistry') || err.message.includes('registered in the native binary'))) {
+        Alert.alert(
+          'Native Binary Rebuild Required',
+          'The document picker native binary is not linked in your running app build yet. Please run `npx pod-install` (for iOS) and rebuild your app, or paste the JSON text directly below.',
+          [{ text: 'OK' }]
+        );
+        return;
+      }
+      console.error('File pick error:', err);
+      Alert.alert('File Error', 'Failed to read selected file. You can paste the JSON content manually below.');
     }
   };
 
   const handleImportSubmit = async () => {
     if (!importJson.trim()) {
-      Alert.alert('Validation Error', 'Please paste the backup text.');
+      Alert.alert('Validation Error', 'Please select or upload a valid backup JSON file.');
       return;
     }
     Alert.alert(
       'Confirm Import',
-      'Importing this backup will overwrite your current database (products, customers, invoices). This cannot be undone. Do you want to proceed?',
+      'Importing this backup file will overwrite your current database (products, customers, invoices). This cannot be undone. Do you want to proceed?',
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -137,10 +387,11 @@ export const ProfileScreen = ({ navigation }: any) => {
               await importData(importJson.trim());
               setImportDialogVisible(false);
               setImportJson('');
-              setSnackbarMessage('Database restored successfully!');
+              setSelectedFile(null);
+              setSnackbarMessage('Database restored successfully from JSON file!');
               setSnackbarVisible(true);
             } catch (e) {
-              Alert.alert('Error', 'Failed to import backup. Please ensure the backup text is valid JSON.');
+              Alert.alert('Error', 'Failed to import backup file. Please ensure the backup file is valid.');
             }
           },
         },
@@ -217,24 +468,15 @@ export const ProfileScreen = ({ navigation }: any) => {
               left={<TextInput.Icon icon="map-marker-outline" />}
             />
 
-            <View style={styles.row}>
-              <TextInput
-                label="Landline Number"
-                value={phone}
-                onChangeText={setPhone}
-                mode="outlined"
-                style={[styles.input, { flex: 1 }]}
-                left={<TextInput.Icon icon="phone" />}
-              />
-              <TextInput
-                label="Mobile Number"
-                value={mobile}
-                onChangeText={setMobile}
-                mode="outlined"
-                style={[styles.input, { flex: 1, marginLeft: 8 }]}
-                left={<TextInput.Icon icon="cellphone" />}
-              />
-            </View>
+            <TextInput
+              label="Mobile Number"
+              value={mobile}
+              onChangeText={setMobile}
+              keyboardType="phone-pad"
+              mode="outlined"
+              style={styles.input}
+              left={<TextInput.Icon icon="cellphone" />}
+            />
 
             <TextInput
               label="Email Address"
@@ -283,16 +525,6 @@ export const ProfileScreen = ({ navigation }: any) => {
             </Text>
 
             <TextInput
-              label="Preferred Currency Symbol"
-              value={currency}
-              editable={false}
-              mode="outlined"
-              style={styles.input}
-              maxLength={3}
-              left={<TextInput.Icon icon="currency-inr" />}
-            />
-
-            <TextInput
               label="Invoice Slogan"
               value={slogan}
               onChangeText={setSlogan}
@@ -308,22 +540,44 @@ export const ProfileScreen = ({ navigation }: any) => {
             <Text variant="bodySmall" style={{ color: theme.colors.outline, marginBottom: 8 }}>
               Set the default layout width for thermal prints. 58mm is standard for pocket printers, 80mm is standard for desktop printers.
             </Text>
-            <SegmentedButtons
-              value={printWidth}
-              onValueChange={(val) => setPrintWidth(val as '58mm' | '80mm')}
-              buttons={[
-                {
-                  value: '58mm',
-                  label: '58mm (32 Chars)',
-                  style: styles.segmentedBtn,
-                },
-                {
-                  value: '80mm',
-                  label: '80mm (48 Chars)',
-                  style: styles.segmentedBtn,
-                },
-              ]}
-            />
+            <View style={{ flexDirection: 'row', gap: 10, marginTop: 4 }}>
+              {[
+                { value: '58mm', title: '58mm Standard', sub: 'Pocket Printer (32 Chars)', icon: 'printer-pos-outline' },
+                { value: '80mm', title: '80mm Wide', sub: 'Desktop Printer (48 Chars)', icon: 'printer-pos' },
+              ].map((item) => {
+                const selected = printWidth === item.value;
+                return (
+                  <Card
+                    key={item.value}
+                    mode="outlined"
+                    onPress={() => setPrintWidth(item.value as '58mm' | '80mm')}
+                    style={{
+                      flex: 1,
+                      borderRadius: 12,
+                      borderWidth: selected ? 2 : 1,
+                      borderColor: selected ? theme.colors.primary : '#D0D7DE',
+                      backgroundColor: selected ? theme.colors.primaryContainer : '#FFFFFF',
+                    }}
+                  >
+                    <Card.Content style={{ paddingVertical: 12, paddingHorizontal: 12 }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                        <MaterialCommunityIcons
+                          name={selected ? 'check-circle' : item.icon}
+                          size={20}
+                          color={selected ? theme.colors.primary : theme.colors.outline}
+                        />
+                        <Text style={{ fontWeight: 'bold', fontSize: 14, color: selected ? theme.colors.primary : '#333333' }}>
+                          {item.title}
+                        </Text>
+                      </View>
+                      <Text style={{ fontSize: 11, color: selected ? theme.colors.onPrimaryContainer : theme.colors.outline }}>
+                        {item.sub}
+                      </Text>
+                    </Card.Content>
+                  </Card>
+                );
+              })}
+            </View>
 
             <Divider style={{ marginVertical: 12 }} />
 
@@ -357,46 +611,29 @@ export const ProfileScreen = ({ navigation }: any) => {
           </Card.Content>
         </Card>
 
-        {/* Database Backup & Restore Card */}
+        {/* Security & Data Management Card */}
         <Card style={styles.card} mode="outlined">
           <Card.Content style={{ gap: 12 }}>
-            <Text variant="titleMedium" style={styles.boldText}>
-              Database Backup & Restore
-            </Text>
-            <Text variant="bodySmall" style={{ color: theme.colors.outline }}>
-              Export your entire database (products, customers, invoices) as a backup, or restore from a previously exported backup string.
-            </Text>
-
-            <View style={styles.row}>
-              <Button
-                mode="contained-tonal"
-                icon="export"
-                style={{ flex: 1 }}
-                onPress={handleExport}
-              >
-                Export Data
-              </Button>
-              <Button
-                mode="contained-tonal"
-                icon="import"
-                style={{ flex: 1, marginLeft: 8 }}
-                onPress={() => setImportDialogVisible(true)}
-              >
-                Import Data
-              </Button>
+            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+              <Avatar.Icon size={44} icon="shield-account" style={{ backgroundColor: theme.colors.primaryContainer }} color={theme.colors.primary} />
+              <View style={{ marginLeft: 12, flex: 1 }}>
+                <Text variant="titleMedium" style={styles.boldText}>Security & Data Management</Text>
+                <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
+                  Manage Security PIN, Database Backups, and Data Cleanup
+                </Text>
+              </View>
             </View>
+            <Divider style={{ marginVertical: 4 }} />
+            <Button
+              mode="contained-tonal"
+              icon="shield-key-outline"
+              onPress={() => navigation.navigate('SecurityBackup')}
+              style={styles.saveBtn}
+            >
+              Manage Security & Data
+            </Button>
           </Card.Content>
         </Card>
-
-        <Button
-          mode="outlined"
-          icon="trash-can-outline"
-          textColor={theme.colors.error}
-          style={[styles.resetBtn, { borderColor: theme.colors.error, marginTop: 8 }]}
-          onPress={handleResetData}
-        >
-          Wipe Database Records
-        </Button>
 
         {/* Developer Attribution Footer */}
         <View style={styles.footerContainer}>
@@ -407,119 +644,23 @@ export const ProfileScreen = ({ navigation }: any) => {
 
       </View>
 
-      <Snackbar
-        visible={snackbarVisible}
-        onDismiss={() => setSnackbarVisible(false)}
-        duration={2500}
-      >
-        {snackbarMessage}
-      </Snackbar>
-
-      {/* Export Dialog */}
       <Portal>
-        <Dialog visible={exportDialogVisible} onDismiss={() => setExportDialogVisible(false)} style={styles.dialog}>
-          <Dialog.Title>Database Export</Dialog.Title>
-          <Dialog.Content style={{ gap: 12 }}>
-            <Text variant="bodyMedium">
-              Copy the backup string below or share it. You can paste this text to restore the database later.
-            </Text>
-            <TextInput
-              value={exportJson}
-              editable={false}
-              multiline
-              numberOfLines={6}
-              selectTextOnFocus
-              mode="outlined"
-              style={styles.dialogInput}
-            />
-          </Dialog.Content>
-          <Dialog.Actions>
-            <Button onPress={handleShareBackup} icon="share-variant">
-              Share Backup
-            </Button>
-            <Button onPress={() => setExportDialogVisible(false)}>
-              Close
-            </Button>
-          </Dialog.Actions>
-        </Dialog>
-      </Portal>
-
-      {/* Import Dialog */}
-      <Portal>
-        <Dialog visible={importDialogVisible} onDismiss={() => setImportDialogVisible(false)} style={styles.dialog}>
-          <Dialog.Title>Database Import</Dialog.Title>
-          <Dialog.Content style={{ gap: 12 }}>
-            <Text variant="bodyMedium">
-              Paste your exported JSON database backup string below to restore all products, customers, and invoices.
-            </Text>
-            <TextInput
-              placeholder="Paste backup JSON here..."
-              value={importJson}
-              onChangeText={setImportJson}
-              multiline
-              numberOfLines={6}
-              mode="outlined"
-              style={styles.dialogInput}
-              autoCapitalize="none"
-              autoCorrect={false}
-            />
-          </Dialog.Content>
-          <Dialog.Actions>
-            <Button onPress={() => { setImportDialogVisible(false); setImportJson(''); }}>
-              Cancel
-            </Button>
-            <Button onPress={handleImportSubmit} icon="import" mode="contained">
-              Restore Data
-            </Button>
-          </Dialog.Actions>
-        </Dialog>
-      </Portal>
-
-      {/* Wipe Data Dialog */}
-      <Portal>
-        <Dialog visible={wipeDialogVisible} onDismiss={() => setWipeDialogVisible(false)} style={styles.dialog}>
-          <Dialog.Title style={{ color: theme.colors.error }}>Wipe Data Options</Dialog.Title>
-          <Dialog.Content style={{ gap: 8 }}>
-            <Text variant="bodyMedium" style={{ marginBottom: 12 }}>
-              Select which records to wipe from your device:
-            </Text>
-
-            <RadioButton.Group onValueChange={(value) => setWipeOption(value as 'invoices' | 'all')} value={wipeOption}>
-              <View style={styles.radioRow}>
-                <RadioButton value="invoices" color={theme.colors.error} />
-                <View style={{ flex: 1, marginLeft: 8 }}>
-                  <Text variant="labelLarge" style={styles.boldText}>Only Invoices</Text>
-                  <Text variant="bodySmall" style={{ color: theme.colors.outline }}>
-                    Delete billing invoice and transaction history. Organization settings, products, and customers catalog are kept.
-                  </Text>
-                </View>
-              </View>
-
-              <Divider style={{ marginVertical: 12 }} />
-
-              <View style={styles.radioRow}>
-                <RadioButton value="all" color={theme.colors.error} />
-                <View style={{ flex: 1, marginLeft: 8 }}>
-                  <Text variant="labelLarge" style={styles.boldText}>All (Wipe All Data)</Text>
-                  <Text variant="bodySmall" style={{ color: theme.colors.outline }}>
-                    Completely resets the application databases. Deletes invoices, products inventory, customer accounts, and settings.
-                  </Text>
-                </View>
-              </View>
-            </RadioButton.Group>
-          </Dialog.Content>
-          <Dialog.Actions>
-            <Button onPress={() => setWipeDialogVisible(false)}>Cancel</Button>
-            <Button
-              onPress={handleWipeProceed}
-              textColor={theme.colors.error}
-              mode="contained-tonal"
-              style={{ borderRadius: 8 }}
-            >
-              Wipe Data
-            </Button>
-          </Dialog.Actions>
-        </Dialog>
+        <Snackbar
+          visible={snackbarVisible}
+          onDismiss={() => setSnackbarVisible(false)}
+          duration={2500}
+          style={{
+            backgroundColor:
+              snackbarType === 'error'
+                ? '#D32F2F'
+                : snackbarType === 'info'
+                ? '#0288D1'
+                : '#2E7D32',
+            borderRadius: 8,
+          }}
+        >
+          <Text style={{ color: '#FFFFFF', fontWeight: 'bold' }}>{snackbarMessage}</Text>
+        </Snackbar>
       </Portal>
 
       {/* Loading Overlay Spinner */}

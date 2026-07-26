@@ -70,9 +70,15 @@ export const initDB = async (): Promise<string> => {
             showGstOnBill INTEGER,
             currency TEXT,
             slogan TEXT,
-            printWidth TEXT
+            printWidth TEXT,
+            securityPin TEXT
           );
         `);
+        try {
+          await dbInstance.executeSql(`ALTER TABLE organization ADD COLUMN securityPin TEXT;`);
+        } catch (e) {
+          // Column already exists
+        }
         await dbInstance.executeSql(`
           CREATE TABLE IF NOT EXISTS products (
             id TEXT PRIMARY KEY,
@@ -172,12 +178,20 @@ export const initDB = async (): Promise<string> => {
 export const executeQuery = async (sql: string, params: any[] = []): Promise<any> => {
   if (isSQLiteAvailable && dbInstance) {
     try {
-      const [results] = await dbInstance.executeSql(sql, params);
-      const rows = [];
-      for (let i = 0; i < results.rows.length; i++) {
-        rows.push(results.rows.item(i));
+      const res = await dbInstance.executeSql(sql, params);
+      const results = Array.isArray(res) ? res[0] : res;
+      const rows: any[] = [];
+      if (results && results.rows && typeof results.rows.length === 'number') {
+        const len = results.rows.length;
+        for (let i = 0; i < len; i++) {
+          rows.push(results.rows.item(i));
+        }
       }
-      return { rows, insertId: results.insertId, rowsAffected: results.rowsAffected };
+      return {
+        rows,
+        insertId: results?.insertId,
+        rowsAffected: results?.rowsAffected || 0,
+      };
     } catch (error) {
       console.error('[DB] SQL execution error for:', sql, error);
       throw error;
@@ -186,6 +200,30 @@ export const executeQuery = async (sql: string, params: any[] = []): Promise<any
     // Simulated query executor for AsyncStorage fallback (minimal mock for simple CRUD calls)
     throw new Error('AsyncStorage running; use specialized operations instead of raw query.');
   }
+};
+
+export const executeTransaction = async (callback: (tx: any) => Promise<void>): Promise<void> => {
+  if (isSQLiteAvailable && dbInstance) {
+    try {
+      await executeQuery('BEGIN TRANSACTION;');
+      await callback(dbInstance);
+      await executeQuery('COMMIT;');
+    } catch (error) {
+      try {
+        await executeQuery('ROLLBACK;');
+      } catch (rollbackError) {
+        console.error('[DB] Rollback error:', rollbackError);
+      }
+      console.error('[DB] Transaction execution error:', error);
+      throw error;
+    }
+  } else {
+    throw new Error('SQLite not available or not initialized');
+  }
+};
+
+export const executeSqlInTransaction = async (tx: any, sql: string, params: any[] = []): Promise<any> => {
+  return await executeQuery(sql, params);
 };
 
 export const getDBMode = () => (isSQLiteAvailable ? 'SQLITE' : 'ASYNC_STORAGE');

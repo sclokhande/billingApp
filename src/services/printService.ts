@@ -4,28 +4,29 @@ const LINE_WIDTH = 32; // 32 characters per line for standard 58mm printers
 
 // Helper to center text
 export const centerText = (text: string, width: number = LINE_WIDTH): string => {
-  if (text.length >= width) {
-    return text.substring(0, width);
+  const safeText = String(text || '');
+  if (safeText.length >= width) {
+    return safeText.substring(0, width);
   }
-  const padding = Math.floor((width - text.length) / 2);
-  return ' '.repeat(padding) + text + ' '.repeat(width - text.length - padding);
+  const padding = Math.floor((width - safeText.length) / 2);
+  return ' '.repeat(padding) + safeText + ' '.repeat(width - safeText.length - padding);
 };
 
 // Helper to pad right/left for columns
 export const formatRow = (leftText: string, rightText: string, width: number = LINE_WIDTH): string => {
-  const spaceCount = width - (leftText.length + rightText.length);
+  const safeLeft = String(leftText || '');
+  const safeRight = String(rightText || '');
+  const spaceCount = width - (safeLeft.length + safeRight.length);
   if (spaceCount <= 0) {
-    // If text exceeds width, truncate left text
-    const truncatedLeft = leftText.substring(0, width - rightText.length - 2) + '..';
-    const spaces = width - (truncatedLeft.length + rightText.length);
-    return truncatedLeft + ' '.repeat(spaces > 0 ? spaces : 1) + rightText;
+    return safeLeft + ' ' + safeRight;
   }
-  return leftText + ' '.repeat(spaceCount) + rightText;
+  return safeLeft + ' '.repeat(spaceCount) + safeRight;
 };
 
 // Format address with word-wrapping
 export const wrapText = (text: string, width: number = LINE_WIDTH): string[] => {
-  const words = text.split(' ');
+  const safeText = String(text || '');
+  const words = safeText.split(' ');
   const lines: string[] = [];
   let currentLine = '';
 
@@ -46,7 +47,7 @@ export const wrapText = (text: string, width: number = LINE_WIDTH): string[] => 
 const getCompactUnit = (unit: string): string => {
   const u = (unit || '').toLowerCase();
   if (u === 'pcs') return ' pc';
-  if (u === 'numbers') return ' no';
+  if (u === 'nos' || u === 'no' || u === 'numbers' || u === 'number') return ' no';
   if (u === 'kg') return ' kg';
   if (u === 'gm') return ' g';
   if (u === 'ltr' || u === 'litre') return ' l';
@@ -60,7 +61,8 @@ const getCompactUnit = (unit: string): string => {
 };
 
 const wrapTextForColumn = (text: string, colWidth: number): string[] => {
-  const words = text.split(' ');
+  const safeText = String(text || '');
+  const words = safeText.split(' ');
   const lines: string[] = [];
   let currentLine = '';
 
@@ -101,6 +103,11 @@ export const formatTabularRow = (
   total: string,
   width: number
 ): string => {
+  const safeName = String(name || '');
+  const safeQty = String(qty || '');
+  const safeRate = String(rate || '');
+  const safeTotal = String(total || '');
+
   // Determine default column widths (excluding 1-character gap separators)
   let nameWidth = 11;
   let qtyWidth = 4;
@@ -116,14 +123,14 @@ export const formatTabularRow = (
 
   // Dynamically adjust nameWidth if other columns exceed their allocated widths
   let extraWidth = 0;
-  if (qty.length > qtyWidth) {
-    extraWidth += (qty.length - qtyWidth);
+  if (safeQty.length > qtyWidth) {
+    extraWidth += (safeQty.length - qtyWidth);
   }
-  if (rate.length > rateWidth) {
-    extraWidth += (rate.length - rateWidth);
+  if (safeRate.length > rateWidth) {
+    extraWidth += (safeRate.length - rateWidth);
   }
-  if (total.length > totalWidth) {
-    extraWidth += (total.length - totalWidth);
+  if (safeTotal.length > totalWidth) {
+    extraWidth += (safeTotal.length - totalWidth);
   }
 
   // Deduct the extra width from nameWidth, but keep name column at least 4 characters wide
@@ -131,21 +138,21 @@ export const formatTabularRow = (
     nameWidth = Math.max(4, nameWidth - extraWidth);
   }
 
-  const nameLines = wrapTextForColumn(name, nameWidth);
+  const nameLines = wrapTextForColumn(safeName, nameWidth);
   const formattedLines: string[] = [];
 
   for (let i = 0; i < nameLines.length; i++) {
     const namePart = nameLines[i].padEnd(nameWidth, ' ');
     if (i === 0) {
-      const qtyPart = qty.padStart(qty.length > qtyWidth ? qty.length : qtyWidth, ' ');
-      const ratePart = rate.padStart(rate.length > rateWidth ? rate.length : rateWidth, ' ');
-      const totalPart = total.padStart(total.length > totalWidth ? total.length : totalWidth, ' ');
+      const qtyPart = safeQty.padStart(safeQty.length > qtyWidth ? safeQty.length : qtyWidth, ' ');
+      const ratePart = safeRate.padStart(safeRate.length > rateWidth ? safeRate.length : rateWidth, ' ');
+      const totalPart = safeTotal.padStart(safeTotal.length > totalWidth ? safeTotal.length : totalWidth, ' ');
       // Join with explicit 1-character spaces to guarantee a gap between columns
       formattedLines.push(namePart + ' ' + qtyPart + ' ' + ratePart + ' ' + totalPart);
     } else {
-      const actualQtyWidth = qty.length > qtyWidth ? qty.length : qtyWidth;
-      const actualRateWidth = rate.length > rateWidth ? rate.length : rateWidth;
-      const actualTotalWidth = total.length > totalWidth ? total.length : totalWidth;
+      const actualQtyWidth = safeQty.length > qtyWidth ? safeQty.length : qtyWidth;
+      const actualRateWidth = safeRate.length > rateWidth ? safeRate.length : rateWidth;
+      const actualTotalWidth = safeTotal.length > totalWidth ? safeTotal.length : totalWidth;
       // Subsequent wrapped lines of item name should align properly with the spacing
       formattedLines.push(namePart + ' ' + ' '.repeat(actualQtyWidth) + ' ' + ' '.repeat(actualRateWidth) + ' ' + ' '.repeat(actualTotalWidth));
     }
@@ -161,36 +168,42 @@ export const formatThermalReceipt = (
   invoice: Invoice,
   items: InvoiceItem[]
 ): string => {
-  const width = org.printWidth === '80mm' ? 48 : 32;
+  const width = org?.printWidth === '80mm' ? 48 : 32;
   const lines: string[] = [];
 
+  const orgName = (org?.name || 'STORE').toUpperCase();
+  const orgAddress = org?.address || '';
+  const currency = 'Rs.';
+
   // 1. Organization Header
-  lines.push(centerText(org.name.toUpperCase(), width));
-  const wrappedAddress = wrapText(org.address, width);
-  wrappedAddress.forEach((addrLine) => lines.push(centerText(addrLine, width)));
+  lines.push(centerText(orgName, width));
+  if (orgAddress) {
+    const wrappedAddress = wrapText(orgAddress, width);
+    wrappedAddress.forEach((addrLine) => lines.push(centerText(addrLine, width)));
+  }
   
-  if (org.phone || org.mobile) {
+  if (org?.phone || org?.mobile) {
     const contactLine = [org.phone, org.mobile].filter(Boolean).join(', ');
     lines.push(centerText(`Ph: ${contactLine}`, width));
   }
   
-  if (org.showGstOnBill && org.gstNumber) {
+  if (org?.showGstOnBill && org?.gstNumber) {
     lines.push(centerText(`GSTIN: ${org.gstNumber}`, width));
   }
   
   lines.push('-'.repeat(width));
 
   // 2. Invoice Meta Info
-  lines.push(`Bill No: ${invoice.invoiceNumber}`);
+  lines.push(`Bill No: ${invoice?.invoiceNumber || ''}`);
   
   // Format Date (simple readable format)
-  const billDate = new Date(invoice.date);
+  const billDate = invoice?.date ? new Date(invoice.date) : new Date();
   const dateStr = billDate.toLocaleDateString();
   const timeStr = billDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   lines.push(`Date: ${dateStr} ${timeStr}`);
   
   if (customer) {
-    lines.push(`Cust: ${customer.name}`);
+    lines.push(`Cust: ${customer.name || 'Walk-in'}`);
     if (customer.phone && customer.phone !== '0000000000') {
       lines.push(`Ph:   ${customer.phone}`);
     }
@@ -204,52 +217,71 @@ export const formatThermalReceipt = (
   lines.push('-'.repeat(width));
 
   // 4. Item List
-  items.forEach((item) => {
-    let qtyStr = item.quantity.toString();
-    if (qtyStr.includes('.')) {
-      const num = parseFloat(qtyStr);
-      qtyStr = num.toFixed(num % 1 === 0 ? 0 : (num * 10) % 1 === 0 ? 1 : 2);
-    }
-    // Print exact selected unit from bill in the format: qty / UOM
-    const finalQtyStr = qtyStr + '/' + (item.unit || '');
+  const safeItems = Array.isArray(items) ? items : [];
+  if (safeItems.length > 0) {
+    safeItems.forEach((item) => {
+      if (!item) return;
 
-    const rateStr = item.price.toFixed(2);
-    const totalStr = item.total.toFixed(2);
+      const rawQty = item.quantity ?? 0;
+      let qtyStr = typeof rawQty === 'number' ? rawQty.toString() : String(rawQty);
+      if (qtyStr.includes('.')) {
+        const num = parseFloat(qtyStr) || 0;
+        qtyStr = num.toFixed(num % 1 === 0 ? 0 : (num * 10) % 1 === 0 ? 1 : 2);
+      }
+      // Print exact selected unit from bill in the format: qty / UOM
+      const finalQtyStr = qtyStr + '/' + (item.unit || '');
 
-    lines.push(formatTabularRow(item.name, finalQtyStr, rateStr, totalStr, width));
-  });
+      const priceNum = typeof item.price === 'number' ? item.price : parseFloat(item.price as any) || 0;
+      const qtyNum = typeof item.quantity === 'number' ? item.quantity : parseFloat(item.quantity as any) || 0;
+      const totalNum = typeof item.total === 'number' ? item.total : parseFloat(item.total as any) || (priceNum * qtyNum);
+
+      const rateStr = priceNum.toFixed(2);
+      const totalStr = totalNum.toFixed(2);
+
+      lines.push(formatTabularRow(item.name || 'Item', finalQtyStr, rateStr, totalStr, width));
+    });
+  } else {
+    lines.push(centerText('NO ITEMS', width));
+  }
 
   lines.push('-'.repeat(width));
 
   // 5. Totals
-  lines.push(formatRow('Subtotal:', invoice.subtotal.toFixed(2), width));
+  const subtotalNum = typeof invoice?.subtotal === 'number' ? invoice.subtotal : parseFloat(invoice?.subtotal as any) || 0;
+  const cgstNum = typeof invoice?.cgstTotal === 'number' ? invoice.cgstTotal : parseFloat(invoice?.cgstTotal as any) || 0;
+  const sgstNum = typeof invoice?.sgstTotal === 'number' ? invoice.sgstTotal : parseFloat(invoice?.sgstTotal as any) || 0;
+  const discountNum = typeof invoice?.discount === 'number' ? invoice.discount : parseFloat(invoice?.discount as any) || 0;
+  const grandTotalNum = typeof invoice?.grandTotal === 'number' ? invoice.grandTotal : parseFloat(invoice?.grandTotal as any) || 0;
+
+  lines.push(formatRow('Subtotal:', subtotalNum.toFixed(2), width));
   
-  if (org.showGstOnBill && org.gstNumber) {
-    if (invoice.cgstTotal > 0) {
-      lines.push(formatRow('CGST (Central):', invoice.cgstTotal.toFixed(2), width));
+  if (org?.showGstOnBill && org?.gstNumber) {
+    if (cgstNum > 0) {
+      lines.push(formatRow('CGST (Central):', cgstNum.toFixed(2), width));
     }
-    if (invoice.sgstTotal > 0) {
-      lines.push(formatRow('SGST (State):', invoice.sgstTotal.toFixed(2), width));
+    if (sgstNum > 0) {
+      lines.push(formatRow('SGST (State):', sgstNum.toFixed(2), width));
     }
   }
 
-  if (invoice.discount > 0) {
-    lines.push(formatRow('Discount:', `-${invoice.discount.toFixed(2)}`, width));
+  if (discountNum > 0) {
+    lines.push(formatRow('Discount:', `-${discountNum.toFixed(2)}`, width));
   }
 
   lines.push('='.repeat(width));
   
-  // Grand Total
-  lines.push(formatRow('GRAND TOTAL:', `${org.currency} ${invoice.grandTotal.toFixed(2)}`, width));
+  // Grand Total - GRAND TOTAL: on line 1, Rs. <value> on line 2
+  lines.push('GRAND TOTAL:');
+  lines.push(`${currency} ${grandTotalNum.toFixed(2)}`);
   lines.push('='.repeat(width));
 
   // Payment Mode
-  lines.push(`Pay Mode: ${invoice.paymentMethod}`);
-  lines.push(`Status:   ${invoice.paymentStatus}`);
+  lines.push(`Pay Mode: ${invoice?.paymentMethod || 'Cash'}`);
+  lines.push(`Status:   ${invoice?.paymentStatus || 'Paid'}`);
   lines.push('-'.repeat(width));
 
   // 6. Bottom Slogan / Footer
-  if (org.slogan) {
+  if (org?.slogan) {
     const wrappedSlogan = wrapText(org.slogan, width);
     wrappedSlogan.forEach((slogLine) => lines.push(centerText(slogLine, width)));
   } else {

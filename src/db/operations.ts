@@ -1,5 +1,5 @@
 import { Organization, Product, Customer, Invoice, InvoiceItem } from './types';
-import { getDBMode, executeQuery, memoryDb, ASYNC_KEYS } from './db';
+import { getDBMode, executeQuery, memoryDb, ASYNC_KEYS, executeTransaction, executeSqlInTransaction } from './db';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // Generate UUID fallback
@@ -15,9 +15,10 @@ export const DEFAULT_ORG: Organization = {
   email: '',
   gstNumber: '',
   showGstOnBill: false,
-  currency: '₹',
+  currency: 'Rs.',
   slogan: 'Thank You Visit again',
   printWidth: '58mm',
+  securityPin: '1234',
 };
 
 // ==========================================
@@ -34,6 +35,7 @@ export const getOrganization = async (): Promise<Organization> => {
         return {
           ...row,
           showGstOnBill: row.showGstOnBill === 1,
+          securityPin: row.securityPin || '1234',
         };
       }
       // If none exists, insert and return default
@@ -48,7 +50,10 @@ export const getOrganization = async (): Promise<Organization> => {
       memoryDb.organization = DEFAULT_ORG;
       await AsyncStorage.setItem(ASYNC_KEYS.ORGANIZATION, JSON.stringify(DEFAULT_ORG));
     }
-    return memoryDb.organization;
+    return {
+      ...memoryDb.organization,
+      securityPin: memoryDb.organization.securityPin || '1234',
+    };
   }
 };
 
@@ -56,8 +61,8 @@ export const saveOrganization = async (org: Organization): Promise<void> => {
   const mode = getDBMode();
   if (mode === 'SQLITE') {
     await executeQuery(
-      `INSERT OR REPLACE INTO organization (id, name, address, phone, mobile, email, gstNumber, showGstOnBill, currency, slogan, printWidth) 
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT OR REPLACE INTO organization (id, name, address, phone, mobile, email, gstNumber, showGstOnBill, currency, slogan, printWidth, securityPin) 
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         org.id || 'default_org',
         org.name,
@@ -70,6 +75,7 @@ export const saveOrganization = async (org: Organization): Promise<void> => {
         org.currency,
         org.slogan,
         org.printWidth || '58mm',
+        org.securityPin || '1234',
       ]
     );
   } else {
@@ -264,75 +270,75 @@ export const saveInvoice = async (invoice: Invoice, items: InvoiceItem[]): Promi
   }));
 
   if (mode === 'SQLITE') {
-    // In SQLITE, we execute inside a transaction block manually (since we want atomic write)
+    // In SQLITE, we execute inside a native transaction block
     try {
-      await executeQuery('BEGIN TRANSACTION');
-      
-      await executeQuery(
-        `INSERT INTO invoices (id, invoiceNumber, customerId, date, subtotal, taxTotal, cgstTotal, sgstTotal, discount, grandTotal, paymentStatus, paymentMethod) 
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          invoiceToSave.id,
-          invoiceToSave.invoiceNumber,
-          invoiceToSave.customerId,
-          invoiceToSave.date,
-          invoiceToSave.subtotal,
-          invoiceToSave.taxTotal,
-          invoiceToSave.cgstTotal,
-          invoiceToSave.sgstTotal,
-          invoiceToSave.discount,
-          invoiceToSave.grandTotal,
-          invoiceToSave.paymentStatus,
-          invoiceToSave.paymentMethod,
-        ]
-      );
-
-      for (const item of itemsToSave) {
-        await executeQuery(
-          `INSERT INTO invoice_items (id, invoiceId, productId, name, price, quantity, taxRate, total, unit) 
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      await executeTransaction(async (tx) => {
+        await executeSqlInTransaction(
+          tx,
+          `INSERT INTO invoices (id, invoiceNumber, customerId, date, subtotal, taxTotal, cgstTotal, sgstTotal, discount, grandTotal, paymentStatus, paymentMethod) 
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
-            item.id,
-            item.invoiceId,
-            item.productId,
-            item.name,
-            item.price,
-            item.quantity,
-            item.taxRate,
-            item.total,
-            item.unit,
+            invoiceToSave.id,
+            invoiceToSave.invoiceNumber,
+            invoiceToSave.customerId,
+            invoiceToSave.date,
+            invoiceToSave.subtotal,
+            invoiceToSave.taxTotal,
+            invoiceToSave.cgstTotal,
+            invoiceToSave.sgstTotal,
+            invoiceToSave.discount,
+            invoiceToSave.grandTotal,
+            invoiceToSave.paymentStatus,
+            invoiceToSave.paymentMethod,
           ]
         );
 
-        // Fetch product's base unit to compute stock conversion factor
-        const productRes = await executeQuery('SELECT unit FROM products WHERE id = ?', [item.productId]);
-        let conversionFactor = 1;
-        if (productRes.rows.length > 0) {
-          const baseUnit = (productRes.rows[0].unit || '').toLowerCase();
-          const itemUnit = (item.unit || '').toLowerCase();
-          if (baseUnit !== itemUnit) {
-            if (baseUnit === 'kg' && itemUnit === 'gm') {
-              conversionFactor = 1 / 1000;
-            } else if (baseUnit === 'gm' && itemUnit === 'kg') {
-              conversionFactor = 1000;
-            } else if ((baseUnit === 'ltr' || baseUnit === 'litre') && itemUnit === 'ml') {
-              conversionFactor = 1 / 1000;
-            } else if (baseUnit === 'ml' && (itemUnit === 'ltr' || itemUnit === 'litre')) {
-              conversionFactor = 1000;
+        for (const item of itemsToSave) {
+          await executeSqlInTransaction(
+            tx,
+            `INSERT INTO invoice_items (id, invoiceId, productId, name, price, quantity, taxRate, total, unit) 
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+              item.id,
+              item.invoiceId,
+              item.productId,
+              item.name,
+              item.price,
+              item.quantity,
+              item.taxRate,
+              item.total,
+              item.unit,
+            ]
+          );
+
+          // Fetch product's base unit to compute stock conversion factor
+          const productRes = await executeSqlInTransaction(tx, 'SELECT unit FROM products WHERE id = ?', [item.productId]);
+          let conversionFactor = 1;
+          if (productRes.rows.length > 0) {
+            const baseUnit = (productRes.rows[0].unit || '').toLowerCase();
+            const itemUnit = (item.unit || '').toLowerCase();
+            if (baseUnit !== itemUnit) {
+              if (baseUnit === 'kg' && itemUnit === 'gm') {
+                conversionFactor = 1 / 1000;
+              } else if (baseUnit === 'gm' && itemUnit === 'kg') {
+                conversionFactor = 1000;
+              } else if ((baseUnit === 'ltr' || baseUnit === 'litre') && itemUnit === 'ml') {
+                conversionFactor = 1 / 1000;
+              } else if (baseUnit === 'ml' && (itemUnit === 'ltr' || itemUnit === 'litre')) {
+                conversionFactor = 1000;
+              }
             }
           }
+
+          // Decrement product stock quantity with conversion factor
+          await executeSqlInTransaction(
+            tx,
+            `UPDATE products SET stockQuantity = stockQuantity - ? WHERE id = ?`,
+            [item.quantity * conversionFactor, item.productId]
+          );
         }
-
-        // Decrement product stock quantity with conversion factor
-        await executeQuery(
-          `UPDATE products SET stockQuantity = stockQuantity - ? WHERE id = ?`,
-          [item.quantity * conversionFactor, item.productId]
-        );
-      }
-
-      await executeQuery('COMMIT');
+      });
     } catch (e) {
-      await executeQuery('ROLLBACK');
       console.error('[DB] Transaction error saving invoice', e);
       throw e;
     }
@@ -377,12 +383,11 @@ export const deleteInvoice = async (id: string): Promise<void> => {
   const mode = getDBMode();
   if (mode === 'SQLITE') {
     try {
-      await executeQuery('BEGIN TRANSACTION');
-      await executeQuery('DELETE FROM invoices WHERE id = ?', [id]);
-      await executeQuery('DELETE FROM invoice_items WHERE invoiceId = ?', [id]);
-      await executeQuery('COMMIT');
+      await executeTransaction(async (tx) => {
+        await executeSqlInTransaction(tx, 'DELETE FROM invoices WHERE id = ?', [id]);
+        await executeSqlInTransaction(tx, 'DELETE FROM invoice_items WHERE invoiceId = ?', [id]);
+      });
     } catch (e) {
-      await executeQuery('ROLLBACK');
       console.error('[DB] Transaction error deleting invoice', e);
       throw e;
     }
@@ -406,7 +411,7 @@ export const seedDatabase = async (force: boolean = false): Promise<void> => {
   if (!shouldSeed) {
     if (mode === 'SQLITE') {
       const orgCheck = await executeQuery('SELECT COUNT(*) as count FROM organization');
-      shouldSeed = orgCheck.rows[0].count === 0;
+      shouldSeed = !orgCheck.rows || orgCheck.rows.length === 0 || (orgCheck.rows[0] && orgCheck.rows[0].count === 0);
     } else {
       shouldSeed = !memoryDb.organization;
     }
@@ -504,6 +509,9 @@ export const clearDatabase = async (): Promise<void> => {
 };
 
 export interface DatabaseBackup {
+  version?: string;
+  filename?: string;
+  exportedAt?: string;
   organization: Organization;
   products: Product[];
   customers: Customer[];
@@ -511,7 +519,20 @@ export interface DatabaseBackup {
   invoiceItems: InvoiceItem[];
 }
 
-export const exportDatabaseData = async (): Promise<string> => {
+export const generateBackupFilename = (): string => {
+  const now = new Date();
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const year = now.getFullYear();
+  const month = pad(now.getMonth() + 1);
+  const day = pad(now.getDate());
+  const hours = pad(now.getHours());
+  const mins = pad(now.getMinutes());
+  const secs = pad(now.getSeconds());
+
+  return `parchiwala_backup_${year}${month}${day}_${hours}${mins}${secs}.json`;
+};
+
+export const exportDatabaseData = async (): Promise<{ jsonStr: string; filename: string }> => {
   const org = await getOrganization();
   const prods = await getProducts();
   const custs = await getCustomers();
@@ -529,8 +550,13 @@ export const exportDatabaseData = async (): Promise<string> => {
     invs = memoryDb.invoices;
     items = memoryDb.invoiceItems;
   }
+
+  const filename = generateBackupFilename();
   
   const backup: DatabaseBackup = {
+    version: '1.0',
+    filename,
+    exportedAt: new Date().toISOString(),
     organization: org,
     products: prods,
     customers: custs,
@@ -538,7 +564,10 @@ export const exportDatabaseData = async (): Promise<string> => {
     invoiceItems: items,
   };
   
-  return JSON.stringify(backup);
+  return {
+    jsonStr: JSON.stringify(backup, null, 2),
+    filename,
+  };
 };
 
 export const importDatabaseData = async (jsonStr: string): Promise<void> => {

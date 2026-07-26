@@ -20,7 +20,7 @@ import { useBilling } from '../context/BillingContext';
 import { Product } from '../db/types';
 
 const UNIT_PRESETS = [
-  'Pcs', 'Numbers', 'Kg', 'Gm', 'Ltr', 'Ml', 'Meter', 'Pack', 'Box', 'Doz', 
+  'Pcs', 'Nos', 'Kg', 'Gm', 'Ltr', 'Ml', 'Meter', 'Pack', 'Box', 'Doz', 
   'Roll', 'Service', 'Session', 'Hour', 'Month', 'Visit', 'Day'
 ];
 
@@ -41,12 +41,19 @@ export const ProductsScreen = () => {
   // Snackbar states
   const [snackbarVisible, setSnackbarVisible] = useState(false);
   const [snackbarMessage, setSnackbarMessage] = useState('');
+  const [snackbarType, setSnackbarType] = useState<'success' | 'error' | 'info'>('success');
+
+  const showToast = (msg: string, type: 'success' | 'error' | 'info' = 'success') => {
+    setSnackbarMessage(msg);
+    setSnackbarType(type);
+    setSnackbarVisible(true);
+  };
 
   // Form states
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [price, setPrice] = useState('');
-  const [taxRate, setTaxRate] = useState('18'); // Default 18% GST
+  const [taxRate, setTaxRate] = useState('0'); // Default 0% GST
   const [unit, setUnit] = useState('Pcs');
   const [stockQuantity, setStockQuantity] = useState('0');
 
@@ -55,7 +62,7 @@ export const ProductsScreen = () => {
     setName('');
     setDescription('');
     setPrice('');
-    setTaxRate('18');
+    setTaxRate('0');
     setUnit('Pcs');
     setStockQuantity('0');
     setDialogVisible(true);
@@ -73,18 +80,33 @@ export const ProductsScreen = () => {
   };
 
   const handleSave = async () => {
-    if (!name.trim()) {
+    const trimmedName = name.trim();
+    if (!trimmedName) {
       Alert.alert('Validation Error', 'Product Name is required.');
+      return;
+    }
+    if (trimmedName.length < 2) {
+      Alert.alert('Validation Error', 'Product Name must be at least 2 characters.');
+      return;
+    }
+
+    if (!price.trim()) {
+      Alert.alert('Validation Error', 'Product Price is required.');
       return;
     }
     const priceVal = parseFloat(price);
     if (isNaN(priceVal) || priceVal <= 0) {
-      Alert.alert('Validation Error', 'Please enter a valid product price.');
+      Alert.alert('Validation Error', 'Please enter a valid product price (must be greater than Rs. 0).');
+      return;
+    }
+
+    if (!stockQuantity.trim()) {
+      Alert.alert('Validation Error', 'Stock Quantity is required.');
       return;
     }
     const stockVal = parseFloat(stockQuantity);
     if (isNaN(stockVal) || stockVal < 0) {
-      Alert.alert('Validation Error', 'Please enter a valid stock quantity.');
+      Alert.alert('Validation Error', 'Please enter a valid stock quantity (0 or more).');
       return;
     }
 
@@ -101,11 +123,9 @@ export const ProductsScreen = () => {
 
       await saveProduct(productData);
       setDialogVisible(false);
-      setSnackbarMessage(editingProduct ? 'Product updated successfully!' : 'Product added successfully!');
-      setSnackbarVisible(true);
+      showToast(editingProduct ? 'Product updated successfully!' : 'Product added successfully!', 'success');
     } catch (e) {
-      setSnackbarMessage('Error: Failed to save product.');
-      setSnackbarVisible(true);
+      showToast('Error: Failed to save product.', 'error');
     }
   };
 
@@ -121,11 +141,9 @@ export const ProductsScreen = () => {
           onPress: async () => {
             try {
               await deleteProduct(id);
-              setSnackbarMessage('Product deleted successfully!');
-              setSnackbarVisible(true);
+              showToast('Product deleted successfully!', 'success');
             } catch (e) {
-              setSnackbarMessage('Error: Failed to delete product.');
-              setSnackbarVisible(true);
+              showToast('Error: Failed to delete product.', 'error');
             }
           },
         },
@@ -261,18 +279,8 @@ export const ProductsScreen = () => {
                 left={<TextInput.Icon icon="archive-outline" />}
               />
 
-              <TextInput
-                label="Product Unit (e.g. KG, Pcs, Meter) *"
-                value={unit}
-                onChangeText={setUnit}
-                mode="outlined"
-                style={styles.input}
-                placeholder="e.g. KG, Pcs, Meter"
-                left={<TextInput.Icon icon="weight-kilogram" />}
-              />
-
-              <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant, marginBottom: 8 }}>
-                QUICK UNIT PRESETS
+              <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant, marginBottom: 8, fontWeight: 'bold' }}>
+                SELECT PRODUCT UNIT * ({unit})
               </Text>
               
               <View style={styles.presetsContainer}>
@@ -318,9 +326,18 @@ export const ProductsScreen = () => {
       <Snackbar
         visible={snackbarVisible}
         onDismiss={() => setSnackbarVisible(false)}
-        duration={2000}
+        duration={2500}
+        style={{
+          backgroundColor:
+            snackbarType === 'error'
+              ? '#D32F2F'
+              : snackbarType === 'info'
+              ? '#0288D1'
+              : '#2E7D32',
+          borderRadius: 8,
+        }}
       >
-        {snackbarMessage}
+        <Text style={{ color: '#FFFFFF', fontWeight: 'bold' }}>{snackbarMessage}</Text>
       </Snackbar>
 
       {/* Loading Overlay Spinner */}

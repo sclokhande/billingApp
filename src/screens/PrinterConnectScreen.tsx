@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { StyleSheet, View, ScrollView, Alert, ActivityIndicator } from 'react-native';
 import { Text, Card, Button, List, Divider, useTheme, Avatar, IconButton } from 'react-native-paper';
 import { useBilling } from '../context/BillingContext';
-import { BluetoothDevice, scanBluetoothPrinters } from '../services/bluetoothPrinterService';
+import { BluetoothDevice, scanBluetoothPrinters, ensureBluetoothConnected } from '../services/bluetoothPrinterService';
 
 export const PrinterConnectScreen = ({ navigation }: any) => {
   const theme = useTheme() as any;
@@ -84,8 +84,23 @@ export const PrinterConnectScreen = ({ navigation }: any) => {
   };
 
   useEffect(() => {
-    // Scan automatically on mount
-    startScan();
+    const initScreen = async () => {
+      // Background live socket health check when opening Bluetooth Printer screen
+      if (connectedPrinter) {
+        const connCheck = await ensureBluetoothConnected(connectedPrinter);
+        if (!connCheck.ok) {
+          await disconnectPrinter();
+          Alert.alert(
+            'Printer Disconnected',
+            `Printer '${connectedPrinter.name}' is turned off or unreachable. Automatically disconnected so you can pair or reconnect.`,
+            [{ text: 'OK' }]
+          );
+        }
+      }
+      startScan();
+    };
+
+    initScreen();
   }, []);
 
   return (

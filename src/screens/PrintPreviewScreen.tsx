@@ -8,14 +8,14 @@ import { useBilling } from '../context/BillingContext';
 import { InvoiceItem } from '../db/types';
 
 export const PrintPreviewScreen = ({ route, navigation }: any) => {
-  const { invoiceId } = route.params;
+  const { invoiceId, invoice: paramInvoice, items: paramItems } = route.params || {};
   const theme = useTheme() as any;
   const { organization, customers, connectedPrinter, printReceipt } = useBilling();
   const { width: screenWidth } = useWindowDimensions();
   const insets = useSafeAreaInsets();
 
-  const [invoice, setInvoice] = useState<any>(null);
-  const [items, setItems] = useState<InvoiceItem[]>([]);
+  const [invoice, setInvoice] = useState<any>(paramInvoice || null);
+  const [items, setItems] = useState<InvoiceItem[]>(paramItems || []);
   const [loading, setLoading] = useState(true);
   const [receiptText, setReceiptText] = useState('');
 
@@ -25,17 +25,27 @@ export const PrintPreviewScreen = ({ route, navigation }: any) => {
   const fetchDetails = async () => {
     try {
       setLoading(true);
-      const inv = await getInvoiceById(invoiceId);
-      const invoiceItems = await getInvoiceItems(invoiceId);
+      let inv = paramInvoice || null;
+      let invoiceItems = Array.isArray(paramItems) && paramItems.length > 0 ? paramItems : [];
+
+      if (!inv && invoiceId) {
+        inv = await getInvoiceById(invoiceId);
+      }
+
+      if ((!Array.isArray(invoiceItems) || invoiceItems.length === 0) && invoiceId) {
+        invoiceItems = await getInvoiceItems(invoiceId);
+      }
+
       setInvoice(inv);
-      setItems(invoiceItems);
+      setItems(invoiceItems || []);
 
       if (inv) {
         const cust = customers.find((c) => c.id === inv.customerId) || null;
-        const formatted = formatThermalReceipt(organization, cust, inv, invoiceItems);
+        const formatted = formatThermalReceipt(organization, cust, inv, invoiceItems || []);
         setReceiptText(formatted);
       }
     } catch (e) {
+      console.error('[PrintPreviewScreen] Failed to load details:', e);
       Alert.alert('Error', 'Failed to load print preview.');
     } finally {
       setLoading(false);
@@ -47,36 +57,15 @@ export const PrintPreviewScreen = ({ route, navigation }: any) => {
   }, [invoiceId]);
 
   const handlePrint = async () => {
-    if (!connectedPrinter) {
-      Alert.alert(
-        'No Printer Connected',
-        'You need to connect a Bluetooth thermal printer to print this receipt. Would you like to connect one now?',
-        [
-          { text: 'Cancel', style: 'cancel' },
-          {
-            text: 'Connect Printer',
-            onPress: () => navigation.navigate('PrinterConnect')
-          }
-        ]
-      );
-      return;
-    }
-
     try {
-      setPrintStatus('connecting');
-      await new Promise<void>((resolve) => setTimeout(() => resolve(), 800));
-
-      setPrintStatus('printing');
-      const success = await printReceipt(receiptText);
+      const success = await printReceipt(receiptText, navigation);
       if (success) {
         setPrintStatus('success');
       } else {
         setPrintStatus('idle');
-        Alert.alert('Print Error', 'Failed to send print payload to the device. Please verify your printer connection.');
       }
     } catch (e) {
       setPrintStatus('idle');
-      Alert.alert('Error', 'An unexpected printing error occurred.');
     }
   };
 
@@ -114,6 +103,15 @@ export const PrintPreviewScreen = ({ route, navigation }: any) => {
     paperWidth = charWidth * (is80mm ? 48 : 32) + 24;
   }
 
+  // Ensure currency displays as "Rs." in print preview
+  const sanitizedReceiptText = (receiptText || '').replace(/₹/g, 'Rs.');
+
+  // Separate top Org Name for bold title header rendering
+  const receiptLines = sanitizedReceiptText.split('\n');
+  const orgNameHeader = receiptLines.length > 0 ? receiptLines[0].trim() : (organization?.name || 'STORE').toUpperCase();
+  const remainingLines = receiptLines.length > 1 ? receiptLines.slice(1) : [];
+  const titleFontSize = Math.max(18, Math.round(fontSize * 1.75));
+
   return (
     <View style={[styles.container, { backgroundColor: '#333333' }]}>
       <Text style={styles.titleText}>Receipt Print Preview ({organization.printWidth || '58mm'})</Text>
@@ -124,7 +122,45 @@ export const PrintPreviewScreen = ({ route, navigation }: any) => {
           {/* Top Zig Zag tear indicator */}
           <View style={styles.tearIndicator} />
 
-          <Text style={[styles.receiptContent, { fontSize }]}>{receiptText}</Text>
+          {/* Prominent Extra Bold Title Organization Header */}
+          <Text
+            style={[
+              styles.orgTitleHeader,
+              {
+                fontSize: titleFontSize,
+                lineHeight: Math.round(titleFontSize * 1.25),
+              },
+            ]}
+          >
+            {orgNameHeader}
+          </Text>
+
+          {/* Remaining structured receipt content with bold highlights */}
+          {remainingLines.map((line, index) => {
+            const isGrandTotal = line.includes('GRAND TOTAL') || (index > 0 && remainingLines[index - 1].includes('GRAND TOTAL'));
+            if (isGrandTotal) {
+              return (
+                <Text
+                  key={index}
+                  style={[
+                    styles.boldReceiptContent,
+                    {
+                      fontSize: Math.round(fontSize * 1.4),
+                      lineHeight: Math.round(fontSize * 1.6),
+                      letterSpacing: 0.5,
+                    },
+                  ]}
+                >
+                  {line}
+                </Text>
+              );
+            }
+            return (
+              <Text key={index} style={[styles.receiptContent, { fontSize }]}>
+                {line}
+              </Text>
+            );
+          })}
 
           {/* Bottom Zig Zag tear indicator */}
           <View style={styles.tearIndicator} />
@@ -170,7 +206,7 @@ export const PrintPreviewScreen = ({ route, navigation }: any) => {
 
       {/* Print Simulation Dialog */}
       <Portal>
-        <Dialog visible={printStatus !== 'idle'} dismissable={printStatus === 'success'} onDismiss={() => setPrintStatus('idle')}>
+        <Dialog visible={printStatus !== 'idle'} dismissable={true} onDismiss={() => setPrintStatus('idle')}>
           <Dialog.Title>
             {printStatus === 'connecting' && 'Connecting to Printer...'}
             {printStatus === 'printing' && 'Sending Print Command...'}
@@ -179,14 +215,14 @@ export const PrintPreviewScreen = ({ route, navigation }: any) => {
           <Dialog.Content style={styles.dialogContent}>
             {printStatus === 'connecting' && (
               <>
-                <ActivityIndicator size="large" style={{ marginVertical: 12 }} />
-                <Text variant="bodyMedium">Searching for paired Bluetooth thermal printers...</Text>
+                <ActivityIndicator size="large" style={{ marginVertical: 12 }} color={theme.colors.primary} />
+                <Text variant="bodyMedium">Connecting to Bluetooth thermal printer...</Text>
               </>
             )}
             {printStatus === 'printing' && (
               <>
-                <ActivityIndicator size="large" style={{ marginVertical: 12 }} color={theme.colors.secondary} />
-                <Text variant="bodyMedium">Formatting ESC/POS command sequences...</Text>
+                <ActivityIndicator size="large" style={{ marginVertical: 12 }} color={theme.colors.primary} />
+                <Text variant="bodyMedium">Sending ESC/POS print payload...</Text>
               </>
             )}
             {printStatus === 'success' && (
@@ -201,6 +237,9 @@ export const PrintPreviewScreen = ({ route, navigation }: any) => {
             )}
           </Dialog.Content>
           <Dialog.Actions>
+            {printStatus !== 'success' && (
+              <Button onPress={() => setPrintStatus('idle')}>Cancel</Button>
+            )}
             {printStatus === 'success' && (
               <Button onPress={() => setPrintStatus('idle')}>OK</Button>
             )}
@@ -252,6 +291,20 @@ const styles = StyleSheet.create({
     fontFamily: Platform.OS === 'ios' ? 'Courier New' : 'monospace',
     lineHeight: 16,
     color: '#000000',
+  },
+  boldReceiptContent: {
+    fontFamily: Platform.OS === 'ios' ? 'Courier-Bold' : 'monospace',
+    fontWeight: 'bold',
+    lineHeight: 18,
+    color: '#000000',
+  },
+  orgTitleHeader: {
+    fontFamily: Platform.OS === 'ios' ? 'Courier-Bold' : 'monospace',
+    fontWeight: 'bold',
+    textAlign: 'center',
+    color: '#000000',
+    marginBottom: 8,
+    letterSpacing: 1,
   },
   controlBar: {
     flexDirection: 'row',

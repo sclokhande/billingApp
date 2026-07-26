@@ -33,6 +33,13 @@ export const CustomersScreen = () => {
   // Snackbar states
   const [snackbarVisible, setSnackbarVisible] = useState(false);
   const [snackbarMessage, setSnackbarMessage] = useState('');
+  const [snackbarType, setSnackbarType] = useState<'success' | 'error' | 'info'>('success');
+
+  const showToast = (msg: string, type: 'success' | 'error' | 'info' = 'success') => {
+    setSnackbarMessage(msg);
+    setSnackbarType(type);
+    setSnackbarVisible(true);
+  };
 
   // Form states
   const [name, setName] = useState('');
@@ -59,9 +66,32 @@ export const CustomersScreen = () => {
   };
 
   const handleSave = async () => {
-    if (!name.trim()) {
+    const trimmedName = name.trim();
+    if (!trimmedName) {
       Alert.alert('Validation Error', 'Customer Name is required.');
       return;
+    }
+    if (trimmedName.length < 2) {
+      Alert.alert('Validation Error', 'Customer Name must be at least 2 characters.');
+      return;
+    }
+
+    const trimmedPhone = phone.trim();
+    if (trimmedPhone && trimmedPhone !== '0000000000') {
+      const phoneRegex = /^[0-9]{10}$/;
+      if (!phoneRegex.test(trimmedPhone)) {
+        Alert.alert('Validation Error', 'Please enter a valid 10-digit mobile number.');
+        return;
+      }
+    }
+
+    const trimmedEmail = email.trim();
+    if (trimmedEmail && trimmedEmail !== 'walkin@retail.com') {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(trimmedEmail)) {
+        Alert.alert('Validation Error', 'Please enter a valid email address.');
+        return;
+      }
     }
 
     try {
@@ -75,11 +105,9 @@ export const CustomersScreen = () => {
 
       await saveCustomer(customerData);
       setDialogVisible(false);
-      setSnackbarMessage(editingCustomer ? 'Customer details updated!' : 'Customer added successfully!');
-      setSnackbarVisible(true);
+      showToast(editingCustomer ? 'Customer details updated!' : 'Customer added successfully!', 'success');
     } catch (e) {
-      setSnackbarMessage('Error: Failed to save customer.');
-      setSnackbarVisible(true);
+      showToast('Error: Failed to save customer.', 'error');
     }
   };
 
@@ -100,11 +128,9 @@ export const CustomersScreen = () => {
           onPress: async () => {
             try {
               await deleteCustomer(customer.id);
-              setSnackbarMessage('Customer deleted successfully!');
-              setSnackbarVisible(true);
+              showToast('Customer deleted successfully!', 'success');
             } catch (e) {
-              setSnackbarMessage('Error: Failed to delete customer.');
-              setSnackbarVisible(true);
+              showToast('Error: Failed to delete customer.', 'error');
             }
           },
         },
@@ -252,9 +278,18 @@ export const CustomersScreen = () => {
       <Snackbar
         visible={snackbarVisible}
         onDismiss={() => setSnackbarVisible(false)}
-        duration={2000}
+        duration={2500}
+        style={{
+          backgroundColor:
+            snackbarType === 'error'
+              ? '#D32F2F'
+              : snackbarType === 'info'
+              ? '#0288D1'
+              : '#2E7D32',
+          borderRadius: 8,
+        }}
       >
-        {snackbarMessage}
+        <Text style={{ color: '#FFFFFF', fontWeight: 'bold' }}>{snackbarMessage}</Text>
       </Snackbar>
 
       {/* Loading Overlay Spinner */}

@@ -1,12 +1,13 @@
 import React, { useState } from 'react';
 import { StyleSheet, View, ScrollView, FlatList, TouchableOpacity, useWindowDimensions, Platform, Linking, Alert } from 'react-native';
-import { Text, Card, Button, useTheme, Chip, Divider, Avatar, IconButton, Portal, Dialog } from 'react-native-paper';
+import { Text, Card, Button, useTheme, Chip, Divider, Avatar, IconButton, Portal, Dialog, FAB } from 'react-native-paper';
 import { useBilling } from '../context/BillingContext';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
+import { generateInvoicesPdfReport, shareInvoicesPdfReport } from '../services/pdfReportService';
 
 export const DashboardScreen = ({ navigation }: any) => {
   const theme = useTheme() as any;
-  const { invoices, organization, dbMode } = useBilling();
+  const { invoices, organization, dbMode, verifyPrinterConnectionOrRedirect } = useBilling();
   const { width } = useWindowDimensions();
 
   const isSmallScreen = width < 360;
@@ -58,13 +59,35 @@ export const DashboardScreen = ({ navigation }: any) => {
       .catch(() => Alert.alert('Error', 'An error occurred while opening email.'));
   };
 
-  // Calculations
-  const totalInvoices = invoices.length;
-  const totalSales = invoices.reduce((sum, inv) => sum + inv.grandTotal, 0);
-  const collectedAmount = invoices
+  // Helper to check if date matches today
+  const isToday = (dateStr: string) => {
+    if (!dateStr) return false;
+    const invDate = new Date(dateStr);
+    const today = new Date();
+    return (
+      invDate.getFullYear() === today.getFullYear() &&
+      invDate.getMonth() === today.getMonth() &&
+      invDate.getDate() === today.getDate()
+    );
+  };
+
+  // Calculations for Today's Invoices ONLY
+  const todayInvoices = invoices.filter((inv) => isToday(inv.date));
+  const totalTodayInvoices = todayInvoices.length;
+  const todaySales = todayInvoices.reduce((sum, inv) => sum + inv.grandTotal, 0);
+  const todayCollected = todayInvoices
     .filter((inv) => inv.paymentStatus === 'Paid')
     .reduce((sum, inv) => sum + inv.grandTotal, 0);
-  const pendingAmount = invoices
+  const todayPending = todayInvoices
+    .filter((inv) => inv.paymentStatus === 'Unpaid')
+    .reduce((sum, inv) => sum + inv.grandTotal, 0);
+
+  // Calculations for ALL-TIME Total Metrics
+  const totalSalesAllTime = invoices.reduce((sum, inv) => sum + inv.grandTotal, 0);
+  const totalCollectedAllTime = invoices
+    .filter((inv) => inv.paymentStatus === 'Paid')
+    .reduce((sum, inv) => sum + inv.grandTotal, 0);
+  const totalPendingAllTime = invoices
     .filter((inv) => inv.paymentStatus === 'Unpaid')
     .reduce((sum, inv) => sum + inv.grandTotal, 0);
 
@@ -77,126 +100,233 @@ export const DashboardScreen = ({ navigation }: any) => {
     });
 
     return (
-      <TouchableOpacity
+      <Card
+        key={item.id}
+        style={[styles.invoiceCard, { marginBottom: 8 }]}
+        mode="outlined"
         onPress={() => navigation.navigate('InvoiceDetail', { invoiceId: item.id })}
       >
-        <Card style={styles.invoiceCard} mode="outlined">
-          <Card.Content style={styles.invoiceCardContent}>
-            <View style={styles.invoiceHeader}>
-              <View style={{ flex: 1, marginRight: 8 }}>
-                <Text variant="titleMedium" style={styles.boldText} numberOfLines={1}>
-                  {item.invoiceNumber}
-                </Text>
-                <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
-                  {invoiceDate} • {item.paymentMethod}
-                </Text>
-              </View>
-              <Text variant="titleMedium" style={[styles.boldText, { color: theme.colors.primary }]} numberOfLines={1} adjustsFontSizeToFit>
-                {organization.currency} {item.grandTotal.toFixed(2)}
+        <Card.Content style={{ paddingVertical: 10, paddingHorizontal: 12, gap: 4 }}>
+          {/* Row 1: Bill # + Customer Name | Amount */}
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+            <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 6, marginRight: 8 }}>
+              <Text variant="titleSmall" style={styles.boldText} numberOfLines={1}>
+                {item.invoiceNumber}
+              </Text>
+              <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }} numberOfLines={1}>
+                • {item.customerName || 'Walk-in'}
               </Text>
             </View>
+            <Text variant="titleMedium" style={[styles.boldText, { color: theme.colors.primary }]} numberOfLines={1}>
+              {organization.currency} {item.grandTotal.toFixed(2)}
+            </Text>
+          </View>
 
-            <Divider style={styles.cardDivider} />
-
-            <View style={styles.invoiceFooter}>
-              <Text variant="bodyMedium" numberOfLines={1} style={styles.customerText}>
-                {item.customerName || 'Walk-in Customer'}
+          {/* Row 2: Date + Status Badge | Icon Buttons */}
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 2 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
+              <Text variant="bodySmall" style={{ color: theme.colors.outline, fontSize: 11 }}>
+                {invoiceDate}
               </Text>
               <View
                 style={{
-                  height: 24,
-                  paddingHorizontal: 8,
-                  borderRadius: 12,
-                  alignItems: 'center',
-                  justifyContent: 'center',
+                  paddingHorizontal: 6,
+                  paddingVertical: 1,
+                  borderRadius: 8,
                   backgroundColor: isPaid ? theme.colors.success + '20' : theme.colors.warning + '20',
                 }}
               >
-                <Text
-                  style={{
-                    fontSize: 11,
-                    fontWeight: 'bold',
-                    color: isPaid ? theme.colors.success : theme.colors.warning,
-                  }}
-                >
-                  {item.paymentStatus}
+                <Text style={{ fontSize: 10, fontWeight: 'bold', color: isPaid ? theme.colors.success : theme.colors.warning }}>
+                  {item.paymentStatus} ({item.paymentMethod})
                 </Text>
               </View>
             </View>
-          </Card.Content>
-        </Card>
-      </TouchableOpacity>
+
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginVertical: -8, marginRight: -8 }}>
+              <IconButton
+                icon="eye-outline"
+                size={20}
+                iconColor={theme.colors.primary}
+                onPress={() => navigation.navigate('InvoiceDetail', { invoiceId: item.id })}
+              />
+              <IconButton
+                icon="printer-outline"
+                size={20}
+                iconColor={theme.colors.secondary || theme.colors.primary}
+                onPress={async () => {
+                  const isReady = await verifyPrinterConnectionOrRedirect(navigation);
+                  if (isReady) {
+                    navigation.navigate('PrintPreview', { invoiceId: item.id, invoice: item });
+                  }
+                }}
+              />
+            </View>
+          </View>
+        </Card.Content>
+      </Card>
     );
   };
 
+  // Scroll to top states and ref
+  const scrollViewRef = React.useRef<ScrollView>(null);
+  const [showGoToTop, setShowGoToTop] = useState(false);
+
+  const handleScroll = (event: any) => {
+    const offsetY = event.nativeEvent.contentOffset.y;
+    if (offsetY > 150) {
+      if (!showGoToTop) setShowGoToTop(true);
+    } else {
+      if (showGoToTop) setShowGoToTop(false);
+    }
+  };
+
+  const cardWidth = Math.min(width - 32, 700);
+
   return (
-    <ScrollView style={[styles.container, { backgroundColor: theme.colors.background }]}>
-      <View style={{ width: '100%', maxWidth: 750, alignSelf: 'center', paddingHorizontal: width > 750 ? 16 : 0 }}>
-        {/* Metrics Section */}
+    <View style={{ flex: 1, backgroundColor: theme.colors.background }}>
+      <ScrollView
+        ref={scrollViewRef}
+        onScroll={handleScroll}
+        scrollEventThrottle={16}
+        style={styles.container}
+      >
+      <View style={{ width: '100%', maxWidth: 750, alignSelf: 'center' }}>
+        {/* Metrics Section (Horizontal Scroll for Today vs All-Time Total) */}
         <View style={styles.metricsContainer}>
-          <Card style={[styles.mainMetricCard, { backgroundColor: theme.colors.primaryContainer }]}>
-            <Card.Content style={styles.mainMetricContent}>
-              <Avatar.Icon
-                size={44}
-                icon="cash-multiple"
-                style={{ backgroundColor: theme.colors.primary }}
-                color={theme.colors.onPrimary}
-              />
-              <View style={{ marginLeft: 16, flex: 1 }}>
-                <Text variant="bodyMedium" style={{ color: theme.colors.onPrimaryContainer }}>
-                  Total Sales Revenue
-                </Text>
-                <Text
-                  variant="headlineMedium"
-                  numberOfLines={1}
-                  adjustsFontSizeToFit
-                  style={[styles.boldText, { color: theme.colors.onPrimaryContainer }]}
-                >
-                  {organization.currency} {totalSales.toFixed(2)}
-                </Text>
-              </View>
-            </Card.Content>
-          </Card>
-
-          <View style={[styles.splitMetrics, { flexDirection: isSmallScreen ? 'column' : 'row' }]}>
-            <Card style={[styles.subMetricCard, { flex: isSmallScreen ? undefined : 1, marginBottom: isSmallScreen ? 12 : 0 }]}>
-              <Card.Content>
-                <View style={styles.row}>
-                  <MaterialCommunityIcons name="check-circle" color={theme.colors.success} size={20} />
-                  <Text variant="bodySmall" style={{ marginLeft: 6, color: theme.colors.onSurfaceVariant }}>
-                    Collected
-                  </Text>
-                </View>
-                <Text
-                  variant="titleLarge"
-                  numberOfLines={1}
-                  adjustsFontSizeToFit
-                  style={[styles.boldText, { color: theme.colors.success, marginTop: 8 }]}
-                >
-                  {organization.currency} {collectedAmount.toFixed(2)}
-                </Text>
-              </Card.Content>
-            </Card>
-
-            <Card style={[styles.subMetricCard, { flex: isSmallScreen ? undefined : 1, marginLeft: isSmallScreen ? 0 : 12 }]}>
-              <Card.Content>
-                <View style={styles.row}>
-                  <MaterialCommunityIcons name="clock-outline" color={theme.colors.warning} size={20} />
-                  <Text variant="bodySmall" style={{ marginLeft: 6, color: theme.colors.onSurfaceVariant }}>
-                    Outstanding
-                  </Text>
-                </View>
-                <Text
-                  variant="titleLarge"
-                  numberOfLines={1}
-                  adjustsFontSizeToFit
-                  style={[styles.boldText, { color: theme.colors.warning, marginTop: 8 }]}
-                >
-                  {organization.currency} {pendingAmount.toFixed(2)}
-                </Text>
-              </Card.Content>
-            </Card>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, paddingHorizontal: 16 }}>
+            <Text variant="labelMedium" style={{ fontWeight: 'bold', color: theme.colors.onSurfaceVariant }}>
+              Overview Metrics
+            </Text>
+            <Text variant="bodySmall" style={{ color: theme.colors.primary, fontWeight: 'bold' }}>
+              Swipe for Total 👉
+            </Text>
           </View>
+
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            decelerationRate="fast"
+            snapToInterval={cardWidth + 16}
+            contentContainerStyle={{ paddingHorizontal: 16, gap: 16 }}
+          >
+            {/* Card Block 1: Today's Metrics */}
+            <View style={{ width: cardWidth }}>
+              {/* Revenue Header Banner */}
+              <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: theme.colors.primaryContainer, padding: 12, borderRadius: 12, marginBottom: 10 }}>
+                <Avatar.Icon
+                  size={40}
+                  icon="cash-multiple"
+                  style={{ backgroundColor: theme.colors.primary }}
+                  color={theme.colors.onPrimary}
+                />
+                <View style={{ marginLeft: 12, flex: 1 }}>
+                  <Text variant="labelSmall" style={{ color: theme.colors.primary, fontWeight: 'bold', letterSpacing: 0.5 }}>
+                    TODAY'S SALES REVENUE
+                  </Text>
+                  <Text
+                    variant="headlineSmall"
+                    numberOfLines={1}
+                    adjustsFontSizeToFit
+                    style={[styles.boldText, { color: theme.colors.onPrimaryContainer, marginTop: 2 }]}
+                  >
+                    {organization.currency} {todaySales.toFixed(2)}
+                  </Text>
+                </View>
+              </View>
+
+              {/* Sub Metrics Row */}
+              <View style={{ flexDirection: 'row', gap: 10 }}>
+                <View style={{ flex: 1, backgroundColor: theme.colors.success + '15', padding: 10, borderRadius: 10, borderWidth: 1, borderColor: theme.colors.success + '30' }}>
+                  <View style={styles.row}>
+                    <MaterialCommunityIcons name="check-circle" color={theme.colors.success} size={18} />
+                    <Text variant="labelMedium" style={{ marginLeft: 6, color: theme.colors.success, fontWeight: 'bold' }}>
+                      Collected
+                    </Text>
+                  </View>
+                  <Text
+                    numberOfLines={1}
+                    style={{ fontSize: 22, fontWeight: 'bold', color: theme.colors.success, marginTop: 4 }}
+                  >
+                    {organization.currency} {todayCollected.toFixed(2)}
+                  </Text>
+                </View>
+
+                <View style={{ flex: 1, backgroundColor: theme.colors.warning + '15', padding: 10, borderRadius: 10, borderWidth: 1, borderColor: theme.colors.warning + '30' }}>
+                  <View style={styles.row}>
+                    <MaterialCommunityIcons name="clock-outline" color={theme.colors.warning} size={18} />
+                    <Text variant="labelMedium" style={{ marginLeft: 6, color: theme.colors.warning, fontWeight: 'bold' }}>
+                      Outstanding
+                    </Text>
+                  </View>
+                  <Text
+                    numberOfLines={1}
+                    style={{ fontSize: 22, fontWeight: 'bold', color: theme.colors.warning, marginTop: 4 }}
+                  >
+                    {organization.currency} {todayPending.toFixed(2)}
+                  </Text>
+                </View>
+              </View>
+            </View>
+
+            {/* Card Block 2: All-Time Total Metrics */}
+            <View style={{ width: cardWidth }}>
+              {/* Revenue Header Banner */}
+              <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: theme.colors.secondaryContainer, padding: 12, borderRadius: 12, marginBottom: 10 }}>
+                <Avatar.Icon
+                  size={40}
+                  icon="finance"
+                  style={{ backgroundColor: theme.colors.secondary }}
+                  color={theme.colors.onSecondary}
+                />
+                <View style={{ marginLeft: 12, flex: 1 }}>
+                  <Text variant="labelSmall" style={{ color: theme.colors.secondary, fontWeight: 'bold', letterSpacing: 0.5 }}>
+                    TOTAL REVENUE (ALL-TIME)
+                  </Text>
+                  <Text
+                    variant="headlineSmall"
+                    numberOfLines={1}
+                    adjustsFontSizeToFit
+                    style={[styles.boldText, { color: theme.colors.onSecondaryContainer, marginTop: 2 }]}
+                  >
+                    {organization.currency} {totalSalesAllTime.toFixed(2)}
+                  </Text>
+                </View>
+              </View>
+
+              {/* Sub Metrics Row */}
+              <View style={{ flexDirection: 'row', gap: 10 }}>
+                <View style={{ flex: 1, backgroundColor: theme.colors.success + '15', padding: 10, borderRadius: 10, borderWidth: 1, borderColor: theme.colors.success + '30' }}>
+                  <View style={styles.row}>
+                    <MaterialCommunityIcons name="check-circle" color={theme.colors.success} size={18} />
+                    <Text variant="labelMedium" style={{ marginLeft: 6, color: theme.colors.success, fontWeight: 'bold' }}>
+                      Total Collected
+                    </Text>
+                  </View>
+                  <Text
+                    numberOfLines={1}
+                    style={{ fontSize: 22, fontWeight: 'bold', color: theme.colors.success, marginTop: 4 }}
+                  >
+                    {organization.currency} {totalCollectedAllTime.toFixed(2)}
+                  </Text>
+                </View>
+
+                <View style={{ flex: 1, backgroundColor: theme.colors.warning + '15', padding: 10, borderRadius: 10, borderWidth: 1, borderColor: theme.colors.warning + '30' }}>
+                  <View style={styles.row}>
+                    <MaterialCommunityIcons name="clock-outline" color={theme.colors.warning} size={18} />
+                    <Text variant="labelMedium" style={{ marginLeft: 6, color: theme.colors.warning, fontWeight: 'bold' }}>
+                      Total Outstanding
+                    </Text>
+                  </View>
+                  <Text
+                    numberOfLines={1}
+                    style={{ fontSize: 22, fontWeight: 'bold', color: theme.colors.warning, marginTop: 4 }}
+                  >
+                    {organization.currency} {totalPendingAllTime.toFixed(2)}
+                  </Text>
+                </View>
+              </View>
+            </View>
+          </ScrollView>
         </View>
 
         {/* Quick Actions */}
@@ -224,13 +354,13 @@ export const DashboardScreen = ({ navigation }: any) => {
           </View>
         </View>
 
-        {/* Recent Invoices List */}
+        {/* Today's Invoices List */}
         <View style={styles.recentInvoicesContainer}>
           <View style={[styles.row, { justifyContent: 'space-between', marginBottom: 12 }]}>
             <Text variant="titleMedium" style={[styles.boldText]}>
-              Recent Invoices ({totalInvoices})
+              Today's Invoices ({totalTodayInvoices})
             </Text>
-            {totalInvoices > 0 && (
+            {totalTodayInvoices > 0 && (
               <Text
                 variant="bodySmall"
                 style={{ color: theme.colors.primary, fontWeight: 'bold' }}
@@ -241,12 +371,12 @@ export const DashboardScreen = ({ navigation }: any) => {
             )}
           </View>
 
-          {totalInvoices === 0 ? (
+          {totalTodayInvoices === 0 ? (
             <Card style={styles.emptyCard}>
               <Card.Content style={styles.emptyCardContent}>
                 <MaterialCommunityIcons name="receipt" size={48} color={theme.colors.outline} />
                 <Text variant="titleMedium" style={{ marginTop: 12, color: theme.colors.onSurfaceVariant }}>
-                  No invoices found
+                  No invoices created today
                 </Text>
                 <Text variant="bodyMedium" style={{ color: theme.colors.onSurfaceVariant, textAlign: 'center', marginTop: 4 }}>
                   Get started by creating your first bill invoice today.
@@ -262,7 +392,7 @@ export const DashboardScreen = ({ navigation }: any) => {
             </Card>
           ) : (
             <FlatList
-              data={invoices.slice(0, 5)} // Show top 5 recent invoices
+              data={todayInvoices} // Render all invoices created today to match count exactly
               renderItem={renderInvoiceItem}
               keyExtractor={(item) => item.id}
               scrollEnabled={false} // Since we are nested in ScrollView
@@ -316,14 +446,34 @@ export const DashboardScreen = ({ navigation }: any) => {
         </Dialog>
       </Portal>
 
-      <View style={{ height: 20 }} />
-    </ScrollView>
+        <View style={{ height: 20 }} />
+      </ScrollView>
+
+      {/* Floating Go to Top Button */}
+      {showGoToTop && (
+        <FAB
+          icon="arrow-up"
+          label="Top"
+          size="medium"
+          onPress={() => scrollViewRef.current?.scrollTo({ y: 0, animated: true })}
+          style={[styles.goToTopFab, { backgroundColor: theme.colors.primary }]}
+          color={theme.colors.onPrimary}
+        />
+      )}
+    </View>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+  },
+  goToTopFab: {
+    position: 'absolute',
+    right: 16,
+    bottom: 24,
+    borderRadius: 28,
+    elevation: 6,
   },
 
   row: {
@@ -342,15 +492,17 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   metricsContainer: {
-    padding: 16,
+    paddingVertical: 8,
   },
   mainMetricCard: {
-    borderRadius: 16,
-    marginBottom: 12,
+    borderRadius: 14,
+    marginBottom: 8,
   },
   mainMetricContent: {
     flexDirection: 'row',
     alignItems: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 12,
   },
   splitMetrics: {
     flexDirection: 'row',

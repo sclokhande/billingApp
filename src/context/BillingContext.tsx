@@ -3,7 +3,8 @@ import { Organization, Product, Customer, Invoice } from '../db/types';
 import { initDB, getDBMode } from '../db/db';
 import * as dbOps from '../db/operations';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { BluetoothDevice, connectBluetoothPrinter, disconnectBluetoothPrinter, printReceiptRaw, setConnectedPrinterState, isBluetoothEnabled } from '../services/bluetoothPrinterService';
+import { Alert } from 'react-native';
+import { BluetoothDevice, connectBluetoothPrinter, disconnectBluetoothPrinter, printReceiptRaw, setConnectedPrinterState, isBluetoothEnabled, ensureBluetoothConnected } from '../services/bluetoothPrinterService';
 
 interface BillingContextProps {
   dbMode: string;
@@ -23,12 +24,13 @@ interface BillingContextProps {
   clearAllData: () => Promise<void>;
   clearInvoicesOnly: () => Promise<void>;
   updateInvoicePaymentStatus: (id: string, status: 'Paid' | 'Unpaid') => Promise<void>;
-  exportData: () => Promise<string>;
+  exportData: () => Promise<{ jsonStr: string; filename: string }>;
   importData: (jsonStr: string) => Promise<void>;
   connectedPrinter: BluetoothDevice | null;
   connectPrinter: (device: BluetoothDevice) => Promise<boolean>;
   disconnectPrinter: () => Promise<void>;
-  printReceipt: (text: string) => Promise<boolean>;
+  printReceipt: (text: string, navigation?: any) => Promise<boolean>;
+  verifyPrinterConnectionOrRedirect: (navigation: any) => Promise<boolean>;
 }
 
 const BillingContext = createContext<BillingContextProps | undefined>(undefined);
@@ -206,8 +208,13 @@ export const BillingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
   };
  
-  const exportData = async (): Promise<string> => {
-    return await dbOps.exportDatabaseData();
+  const exportData = async (): Promise<{ jsonStr: string; filename: string }> => {
+    try {
+      setIsLoading(true);
+      return await dbOps.exportDatabaseData();
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const importData = async (jsonStr: string): Promise<void> => {
@@ -245,13 +252,89 @@ export const BillingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
   };
 
-  const printReceipt = async (text: string): Promise<boolean> => {
-    try {
-      return await printReceiptRaw(text);
-    } catch (e) {
-      console.error('printReceipt error:', e);
+  const printReceipt = async (text: string, navigation?: any): Promise<boolean> => {
+    if (!connectedPrinter) {
+      Alert.alert(
+        'No Printer Connected',
+        'You need to connect a Bluetooth thermal printer to print receipts.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          ...(navigation ? [{ text: 'Connect Printer', onPress: () => navigation.navigate('PrinterConnect') }] : []),
+        ]
+      );
       return false;
     }
+
+    try {
+      // 1. Verify physical connection FIRST before attempting print payload
+      const connCheck = await ensureBluetoothConnected(connectedPrinter);
+      if (!connCheck.ok) {
+        if (connCheck.reason === 'BT_OFF') {
+          Alert.alert(
+            'Bluetooth Turned Off',
+            'Bluetooth is disabled on your device. Please turn ON Bluetooth in system settings and try again.'
+          );
+        } else {
+          Alert.alert(
+            'Printer Offline or Turned Off',
+            `Unable to connect to printer '${connectedPrinter.name}'.\n\nPlease check if your thermal printer is turned ON, charged, and within Bluetooth range, or reconnect the printer.`,
+            [
+              { text: 'Cancel', style: 'cancel' },
+              ...(navigation ? [{ text: 'Configure Printer', onPress: () => navigation.navigate('PrinterConnect') }] : []),
+            ]
+          );
+        }
+        return false;
+      }
+
+      // 2. Physical connection confirmed! Send print bytes
+      return await printReceiptRaw(text);
+    } catch (e) {
+      console.error('[BillingContext] printReceipt error:', e);
+      return false;
+    }
+  };
+
+  const verifyPrinterConnectionOrRedirect = async (navigation: any): Promise<boolean> => {
+    if (!connectedPrinter) {
+      Alert.alert(
+        'Printer Needs Configuration',
+        'No Bluetooth thermal printer is connected. Please configure your printer to continue.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Configure Printer',
+            onPress: () => navigation.navigate('PrinterConnect'),
+          },
+        ]
+      );
+      return false;
+    }
+
+    const connCheck = await ensureBluetoothConnected(connectedPrinter);
+    if (!connCheck.ok) {
+      if (connCheck.reason === 'BT_OFF') {
+        Alert.alert(
+          'Bluetooth Turned Off',
+          'Bluetooth is disabled on your device. Please turn ON Bluetooth in system settings and try again.'
+        );
+      } else {
+        Alert.alert(
+          'Printer Offline or Disconnected',
+          `Unable to communicate with '${connectedPrinter.name}'.\n\nPlease check if your thermal printer is turned ON or reconfigure your printer connection.`,
+          [
+            { text: 'Cancel', style: 'cancel' },
+            {
+              text: 'Configure Printer',
+              onPress: () => navigation.navigate('PrinterConnect'),
+            },
+          ]
+        );
+      }
+      return false;
+    }
+
+    return true;
   };
 
   return (
@@ -280,6 +363,7 @@ export const BillingProvider: React.FC<{ children: React.ReactNode }> = ({ child
         connectPrinter,
         disconnectPrinter,
         printReceipt,
+        verifyPrinterConnectionOrRedirect,
       }}
     >
       {children}

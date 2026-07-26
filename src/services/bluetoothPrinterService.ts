@@ -179,19 +179,37 @@ export const scanBluetoothPrinters = async (): Promise<BluetoothDevice[]> => {
   return [];
 };
 
+const withTimeout = <T>(promise: Promise<T>, timeoutMs: number = 4000, timeoutMsg: string = 'Connection timeout'): Promise<T> => {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error(timeoutMsg));
+    }, timeoutMs);
+
+    promise
+      .then((res) => {
+        clearTimeout(timer);
+        resolve(res);
+      })
+      .catch((err) => {
+        clearTimeout(timer);
+        reject(err);
+      });
+  });
+};
+
 /**
- * Connects to a selected bluetooth printer
+ * Connects to a selected bluetooth printer with timeout safety
  */
 export const connectBluetoothPrinter = async (device: BluetoothDevice): Promise<boolean> => {
   if (NativeBLEPrinter) {
     try {
       await NativeBLEPrinter.init();
-      await NativeBLEPrinter.connectPrinter(device.address);
+      await withTimeout(NativeBLEPrinter.connectPrinter(device.address), 2500, 'Printer connection timeout');
       mockConnectedDevice = { ...device, connected: true };
       isPrinterConnectedSession = true;
       return true;
     } catch (e) {
-      console.warn('[BluetoothPrinterService] Real connection failed:', e);
+      console.warn('[BluetoothPrinterService] Real connection failed or timed out:', e);
       isPrinterConnectedSession = false;
     }
   }
@@ -256,40 +274,94 @@ const encodeBase64 = (str: string): string => {
   return result;
 };
 
-export const printReceiptRaw = async (payloadText: string): Promise<boolean> => {
-  // Check if Bluetooth is turned ON in system settings
+/**
+ * Verifies system Bluetooth state and background socket connection.
+ * Automatically attempts background re-connection if disconnected.
+ */
+export const ensureBluetoothConnected = async (
+  device: BluetoothDevice | null
+): Promise<{ ok: boolean; reason?: 'BT_OFF' | 'NO_DEVICE' | 'FAILED' }> => {
+  if (!device) {
+    return { ok: false, reason: 'NO_DEVICE' };
+  }
+
+  // 1. Check if Bluetooth is ON in system settings
   const btEnabled = await isBluetoothEnabled();
   if (!btEnabled) {
-    console.warn('[BluetoothPrinterService] Print aborted: Bluetooth is turned off.');
-    // Request enabling Bluetooth programmatically
+    console.warn('[BluetoothPrinterService] Bluetooth is OFF.');
     await enableBluetooth();
+    return { ok: false, reason: 'BT_OFF' };
+  }
+
+  // 2. Perform live physical socket connection check (2.5s timeout)
+  console.log('[BluetoothPrinterService] Verifying live connection to:', device.name, device.address);
+  try {
+    const isAlive = await connectBluetoothPrinter(device);
+    if (isAlive) {
+      console.log('[BluetoothPrinterService] Live connection verified successfully!');
+      return { ok: true };
+    }
+  } catch (e) {
+    console.warn('[BluetoothPrinterService] Live connection check failed:', e);
+  }
+
+  isPrinterConnectedSession = false;
+  console.warn('[BluetoothPrinterService] Printer is OFF or out of range.');
+  return { ok: false, reason: 'FAILED' };
+};
+
+export const printReceiptRaw = async (payloadText: string): Promise<boolean> => {
+  if (!mockConnectedDevice) {
+    console.warn('[BluetoothPrinterService] Print aborted: No printer saved.');
     return false;
   }
 
-  // If we haven't connected in this session, try to reconnect to the last connected printer
-  if (!isPrinterConnectedSession && mockConnectedDevice) {
-    console.log('[BluetoothPrinterService] Attempting session auto-reconnect...');
-    const connected = await connectBluetoothPrinter(mockConnectedDevice);
-    if (!connected) {
-      console.warn('[BluetoothPrinterService] Session auto-reconnect failed.');
-      return false;
-    }
-  }
-
-  // Double check session flag to prevent NullPointerException crashes in native module
-  if (!isPrinterConnectedSession) {
-    console.warn('[BluetoothPrinterService] Print aborted: printer not connected in this session.');
+  // Ensure background physical connection is alive before writing print bytes
+  const connCheck = await ensureBluetoothConnected(mockConnectedDevice);
+  if (!connCheck.ok) {
+    console.warn('[BluetoothPrinterService] Print aborted: Physical connection check failed:', connCheck.reason);
     return false;
   }
 
   let printSuccess = false;
   if (NativeBLEPrinter) {
     try {
-      // Prepend ESC = 1 (enable printer) and append ESC = 0 (disable printer)
-      // to shield the printer from OS-level background security handshakes when idle.
       const enableCmd = String.fromCharCode(27, 61, 1);
       const disableCmd = String.fromCharCode(27, 61, 0);
-      const hardwareShieldedPayload = enableCmd + payloadText + '\n\n\n' + disableCmd;
+
+      // Detect 80mm vs 58mm line capacity
+      const is80mm = payloadText.includes('-'.repeat(48));
+      const maxNormalCap = is80mm ? 48 : 32;
+      const maxDoubleWidthCap = is80mm ? 24 : 16;
+
+      // ESC E 1 (Bold ON) + ESC ! 32 (Double Height & Double Width Title Size)
+      const boldTitleOn = String.fromCharCode(27, 69, 1) + String.fromCharCode(27, 33, 32);
+      const boldTitleOff = String.fromCharCode(27, 69, 0) + String.fromCharCode(27, 33, 0);
+
+      // ESC E 1 (Bold ON) + ESC ! 16 (Double Height for Grand Total or long titles)
+      const boldGrandTotalOn = String.fromCharCode(27, 69, 1) + String.fromCharCode(27, 33, 16);
+
+      const lines = payloadText.split('\n');
+      if (lines.length > 0) {
+        const rawOrgName = lines[0].trim();
+        if (rawOrgName.length <= maxDoubleWidthCap) {
+          // Fits on ONE line in Double-Width mode
+          const padLeft = Math.max(0, Math.floor((maxDoubleWidthCap - rawOrgName.length) / 2));
+          lines[0] = boldTitleOn + ' '.repeat(padLeft) + rawOrgName + boldTitleOff;
+        } else {
+          // For longer Org Names (up to 32 chars), use Double-Height + Bold so it fits on 1 line
+          const padLeft = Math.max(0, Math.floor((maxNormalCap - rawOrgName.length) / 2));
+          lines[0] = boldGrandTotalOn + ' '.repeat(padLeft) + rawOrgName + boldTitleOff;
+        }
+      }
+      for (let i = 1; i < lines.length; i++) {
+        if (lines[i].includes('GRAND TOTAL') || (i > 0 && lines[i - 1].includes('GRAND TOTAL'))) {
+          lines[i] = boldGrandTotalOn + lines[i] + boldTitleOff;
+        }
+      }
+      const formattedPayload = lines.join('\n');
+
+      const hardwareShieldedPayload = enableCmd + formattedPayload + '\n\n\n' + disableCmd;
 
       // Use the library's standard native printText method with CP437 single-byte encoding
       await NativeBLEPrinter.printText(hardwareShieldedPayload, { encoding: 'CP437' });

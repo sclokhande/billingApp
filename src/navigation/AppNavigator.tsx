@@ -16,6 +16,7 @@ import { CustomersScreen } from '../screens/CustomersScreen';
 import { ProfileScreen } from '../screens/ProfileScreen';
 import { SplashScreen } from '../screens/SplashScreen';
 import { PrinterConnectScreen } from '../screens/PrinterConnectScreen';
+import { SecurityBackupScreen } from '../screens/SecurityBackupScreen';
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -183,6 +184,14 @@ export const AppNavigator = () => {
         component={PrinterConnectScreen}
         options={{
           title: 'Bluetooth Printer',
+          headerBackTitle: 'Back',
+        }}
+      />
+      <Stack.Screen
+        name="SecurityBackup"
+        component={SecurityBackupScreen}
+        options={{
+          title: 'Security & Data Management',
           headerBackTitle: 'Back',
         }}
       />

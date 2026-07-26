@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { StyleSheet, View, ScrollView, FlatList, Alert, useWindowDimensions, Platform } from 'react-native';
 import {
   Text,
@@ -16,9 +16,13 @@ import {
   SegmentedButtons,
   ActivityIndicator,
   Snackbar,
+  Menu,
+  Chip,
+  FAB,
 } from 'react-native-paper';
 import { useBilling } from '../context/BillingContext';
 import { Invoice, InvoiceItem, Customer, Product } from '../db/types';
+import { generateInvoicesPdfReport, shareInvoicesPdfReport } from '../services/pdfReportService';
 
 const getDeltaForUnit = (unitName: string, isDecrement: boolean) => {
   const u = (unitName || '').toLowerCase();
@@ -64,6 +68,7 @@ export const InvoiceBuilderScreen = ({ navigation }: any) => {
     createInvoice,
     invoices,
     isLoading,
+    verifyPrinterConnectionOrRedirect,
   } = useBilling();
 
   // Selected customer & Items
@@ -77,6 +82,105 @@ export const InvoiceBuilderScreen = ({ navigation }: any) => {
   const [discount, setDiscount] = useState<string>('');
   const [paymentMethod, setPaymentMethod] = useState<string>('UPI');
   const [paymentStatus, setPaymentStatus] = useState<'Paid' | 'Unpaid'>('Paid');
+
+  // Billing mode tab state: 'builder' (New Invoice) or 'history' (All Invoices History)
+  const [activeTab, setActiveTab] = useState<'builder' | 'history'>('builder');
+
+  // History Search & Filter states
+  const historyScrollViewRef = useRef<ScrollView>(null);
+  const [showGoToTop, setShowGoToTop] = useState(false);
+
+  const handleHistoryScroll = (event: any) => {
+    const offsetY = event.nativeEvent.contentOffset.y;
+    if (offsetY > 150) {
+      setShowGoToTop(true);
+    } else {
+      setShowGoToTop(false);
+    }
+  };
+
+  const scrollToTop = () => {
+    historyScrollViewRef.current?.scrollTo({ y: 0, animated: true });
+  };
+
+  const [historySearch, setHistorySearch] = useState('');
+  const [historyDateFilter, setHistoryDateFilter] = useState<'all' | 'today' | 'week' | 'month'>('all');
+  const [historyCustomerFilter, setHistoryCustomerFilter] = useState<string>('all');
+  const [historyStatusFilter, setHistoryStatusFilter] = useState<'all' | 'Paid' | 'Unpaid'>('all');
+  const [filterModalVisible, setFilterModalVisible] = useState(false);
+
+  const hasActiveFilters = historyDateFilter !== 'all' || historyStatusFilter !== 'all';
+
+  // Filtered invoices logic
+  const filteredInvoices = invoices.filter((inv) => {
+    // 1. Search Query Filter (Invoice Number, Customer Name, Mobile Number)
+    const q = historySearch.toLowerCase().trim();
+    if (q) {
+      const matchNum = (inv.invoiceNumber || '').toLowerCase().includes(q);
+      const matchCust = (inv.customerName || '').toLowerCase().includes(q);
+      const custObj = customers.find((c) => c.id === inv.customerId);
+      const matchPhone = (custObj?.phone || '').includes(q);
+      if (!matchNum && !matchCust && !matchPhone) {
+        return false;
+      }
+    }
+
+    // 2. Date Filter
+    if (historyDateFilter !== 'all') {
+      const invDate = new Date(inv.date);
+      const today = new Date();
+      if (historyDateFilter === 'today') {
+        const isSameDay =
+          invDate.getFullYear() === today.getFullYear() &&
+          invDate.getMonth() === today.getMonth() &&
+          invDate.getDate() === today.getDate();
+        if (!isSameDay) return false;
+      } else if (historyDateFilter === 'week') {
+        const sevenDaysAgo = new Date();
+        sevenDaysAgo.setDate(today.getDate() - 7);
+        if (invDate < sevenDaysAgo) return false;
+      } else if (historyDateFilter === 'month') {
+        const isSameMonth =
+          invDate.getFullYear() === today.getFullYear() &&
+          invDate.getMonth() === today.getMonth();
+        if (!isSameMonth) return false;
+      }
+    }
+
+    // 3. Customer Filter
+    if (historyCustomerFilter !== 'all') {
+      if (inv.customerId !== historyCustomerFilter) {
+        return false;
+      }
+    }
+
+    // 4. Payment Status Filter
+    if (historyStatusFilter !== 'all') {
+      if (inv.paymentStatus !== historyStatusFilter) {
+        return false;
+      }
+    }
+
+    return true;
+  });
+
+  const filteredTotalRevenue = filteredInvoices.reduce((sum, inv) => sum + inv.grandTotal, 0);
+
+
+
+  const handleSharePdfReport = async (reportType: 'summary' | 'detailed' = 'summary') => {
+    if (filteredInvoices.length === 0) {
+      Alert.alert('Report Warning', 'No invoices available to share PDF report.');
+      return;
+    }
+    try {
+      const filterTitle = `Invoices Sales Report (${historyDateFilter.toUpperCase()} - ${historyStatusFilter.toUpperCase()})`;
+      await shareInvoicesPdfReport(organization, filteredInvoices, filterTitle, reportType);
+    } catch (e: any) {
+      console.warn('[InvoiceBuilder] PDF Share error:', e);
+      Alert.alert('Error', e?.message || 'Failed to share PDF report.');
+    }
+  };
 
   // Dialog Toggles
   const [customerDialogVisible, setCustomerDialogVisible] = useState(false);
@@ -331,7 +435,7 @@ export const InvoiceBuilderScreen = ({ navigation }: any) => {
       setPaymentStatus('Paid');
 
       // Navigate to Print Preview for direct print option
-      navigation.navigate('PrintPreview', { invoiceId });
+      navigation.navigate('PrintPreview', { invoiceId, invoice: invoiceData, items: invoiceItems });
     } catch (e) {
       Alert.alert('Error', 'Failed to generate invoice. Please try again.');
     }
@@ -341,29 +445,215 @@ export const InvoiceBuilderScreen = ({ navigation }: any) => {
 
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: width > 700 ? 24 : 16 }}>
+      <ScrollView
+        ref={historyScrollViewRef}
+        style={{ flex: 1 }}
+        contentContainerStyle={{ padding: width > 700 ? 24 : 16 }}
+        onScroll={handleHistoryScroll}
+        scrollEventThrottle={16}
+      >
         <View style={{ width: '100%', maxWidth: 700, alignSelf: 'center' }}>
-          {/* Customer Selection Card */}
-        <Card style={styles.card} mode="outlined">
-          <Card.Content style={styles.customerSelector}>
-            <View style={{ flex: 1 }}>
-              <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
-                BILLING CUSTOMER
-              </Text>
-              <Text variant="titleMedium" style={styles.boldText}>
-                {selectedCustomer ? selectedCustomer.name : 'Select Customer'}
-              </Text>
-              {selectedCustomer && selectedCustomer.phone !== '0000000000' && (
-                <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
-                  {selectedCustomer.phone}
-                </Text>
+          {/* Top Mode Switcher: New Bill vs All Invoices History */}
+          <SegmentedButtons
+            value={activeTab}
+            onValueChange={(val) => setActiveTab(val as 'builder' | 'history')}
+            buttons={[
+              {
+                value: 'builder',
+                label: 'New Invoice',
+                icon: 'plus-circle-outline',
+              },
+              {
+                value: 'history',
+                label: `All Invoices (${invoices.length})`,
+                icon: 'history',
+              },
+            ]}
+            style={{ marginBottom: 16 }}
+          />
+
+          {activeTab === 'history' ? (
+            <View style={{ gap: 12 }}>
+              {/* Search Bar + Filter Icon Row */}
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <TextInput
+                  label="Search All Invoices"
+                  placeholder="Search by bill #, customer name, mobile..."
+                  value={historySearch}
+                  onChangeText={setHistorySearch}
+                  mode="outlined"
+                  left={<TextInput.Icon icon="magnify" />}
+                  right={historySearch ? <TextInput.Icon icon="close" onPress={() => setHistorySearch('')} /> : null}
+                  style={{ flex: 1, backgroundColor: theme.colors.surface }}
+                />
+                <IconButton
+                  icon={hasActiveFilters ? "filter-check" : "filter-variant"}
+                  mode={hasActiveFilters ? "contained" : "outlined"}
+                  iconColor={hasActiveFilters ? "#FFFFFF" : theme.colors.primary}
+                  containerColor={hasActiveFilters ? theme.colors.primary : undefined}
+                  size={26}
+                  onPress={() => setFilterModalVisible(true)}
+                  style={{ marginTop: 6 }}
+                />
+              </View>
+
+              {/* Active Filter Chips Bar (if any filters active) */}
+              {hasActiveFilters && (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                  {historyDateFilter !== 'all' && (
+                    <Chip
+                      icon="calendar"
+                      onClose={() => setHistoryDateFilter('all')}
+                      style={{ backgroundColor: theme.colors.primaryContainer }}
+                      textStyle={{ fontSize: 12, fontWeight: 'bold' }}
+                    >
+                      {historyDateFilter === 'today' ? 'Today' : historyDateFilter === 'week' ? 'Past 7 Days' : 'This Month'}
+                    </Chip>
+                  )}
+                  {historyStatusFilter !== 'all' && (
+                    <Chip
+                      icon="check-circle-outline"
+                      onClose={() => setHistoryStatusFilter('all')}
+                      style={{ backgroundColor: theme.colors.primaryContainer }}
+                      textStyle={{ fontSize: 12, fontWeight: 'bold' }}
+                    >
+                      Status: {historyStatusFilter}
+                    </Chip>
+                  )}
+                  <Button compact mode="text" onPress={() => { setHistoryDateFilter('all'); setHistoryStatusFilter('all'); }}>
+                    Clear Filters
+                  </Button>
+                </View>
+              )}
+
+              {/* Compact Summary Bar */}
+              <Card style={{ backgroundColor: theme.colors.primaryContainer, marginVertical: 2 }}>
+                <Card.Content style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 8, paddingHorizontal: 12 }}>
+                  <Text variant="titleSmall" style={{ color: theme.colors.onPrimaryContainer, fontWeight: 'bold' }}>
+                    Matching: {filteredInvoices.length} Invoices
+                  </Text>
+                  <Text variant="titleMedium" style={{ color: theme.colors.onPrimaryContainer, fontWeight: 'bold' }}>
+                    Total: {organization.currency} {filteredTotalRevenue.toFixed(2)}
+                  </Text>
+                </Card.Content>
+              </Card>
+
+              {/* Invoices History List */}
+              {filteredInvoices.length === 0 ? (
+                <Card style={styles.emptyCard} mode="outlined">
+                  <Card.Content style={styles.centerAlign}>
+                    <IconButton icon="file-search-outline" size={40} iconColor={theme.colors.outline} />
+                    <Text variant="titleMedium" style={{ marginTop: 8, color: theme.colors.onSurfaceVariant }}>
+                      No matching invoices found
+                    </Text>
+                    <Text variant="bodySmall" style={{ color: theme.colors.outline, textAlign: 'center', marginTop: 4 }}>
+                      Try adjusting your search terms or date filter options.
+                    </Text>
+                  </Card.Content>
+                </Card>
+              ) : (
+                filteredInvoices.map((inv) => {
+                  const isPaid = inv.paymentStatus === 'Paid';
+                  const dateStr = new Date(inv.date).toLocaleDateString(undefined, {
+                    year: 'numeric',
+                    month: 'short',
+                    day: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                  });
+
+                  return (
+                    <Card
+                      key={inv.id}
+                      style={[styles.card, { marginBottom: 8 }]}
+                      mode="outlined"
+                      onPress={() => navigation.navigate('InvoiceDetail', { invoiceId: inv.id })}
+                    >
+                      <Card.Content style={{ paddingVertical: 10, paddingHorizontal: 12, gap: 4 }}>
+                        {/* Row 1: Bill # + Customer Name | Amount */}
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 6, marginRight: 8 }}>
+                            <Text variant="titleSmall" style={styles.boldText} numberOfLines={1}>
+                              {inv.invoiceNumber}
+                            </Text>
+                            <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }} numberOfLines={1}>
+                              • {inv.customerName || 'Walk-in'}
+                            </Text>
+                          </View>
+                          <Text variant="titleMedium" style={[styles.boldText, { color: theme.colors.primary }]} numberOfLines={1}>
+                            {organization.currency} {inv.grandTotal.toFixed(2)}
+                          </Text>
+                        </View>
+
+                        {/* Row 2: Date + Status Badge | Icon Buttons */}
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 2 }}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
+                            <Text variant="bodySmall" style={{ color: theme.colors.outline, fontSize: 11 }}>
+                              {dateStr}
+                            </Text>
+                            <View
+                              style={{
+                                paddingHorizontal: 6,
+                                paddingVertical: 1,
+                                borderRadius: 8,
+                                backgroundColor: isPaid ? theme.colors.success + '20' : theme.colors.warning + '20',
+                              }}
+                            >
+                              <Text style={{ fontSize: 10, fontWeight: 'bold', color: isPaid ? theme.colors.success : theme.colors.warning }}>
+                                {inv.paymentStatus} ({inv.paymentMethod})
+                              </Text>
+                            </View>
+                          </View>
+
+                          <View style={{ flexDirection: 'row', alignItems: 'center', marginVertical: -8, marginRight: -8 }}>
+                            <IconButton
+                              icon="eye-outline"
+                              size={20}
+                              iconColor={theme.colors.primary}
+                              onPress={() => navigation.navigate('InvoiceDetail', { invoiceId: inv.id })}
+                            />
+                            <IconButton
+                              icon="printer-outline"
+                              size={20}
+                              iconColor={theme.colors.secondary || theme.colors.primary}
+                              onPress={async () => {
+                                const isReady = await verifyPrinterConnectionOrRedirect(navigation);
+                                if (isReady) {
+                                  navigation.navigate('PrintPreview', { invoiceId: inv.id, invoice: inv });
+                                }
+                              }}
+                            />
+                          </View>
+                        </View>
+                      </Card.Content>
+                    </Card>
+                  );
+                })
               )}
             </View>
-            <Button mode="outlined" onPress={() => setCustomerDialogVisible(true)} compact>
-              Change
-            </Button>
-          </Card.Content>
-        </Card>
+          ) : (
+            <View>
+              {/* Customer Selection Card */}
+              <Card style={styles.card} mode="outlined">
+                <Card.Content style={styles.customerSelector}>
+                  <View style={{ flex: 1 }}>
+                    <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
+                      BILLING CUSTOMER
+                    </Text>
+                    <Text variant="titleMedium" style={styles.boldText}>
+                      {selectedCustomer ? selectedCustomer.name : 'Select Customer'}
+                    </Text>
+                    {selectedCustomer && selectedCustomer.phone !== '0000000000' && (
+                      <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
+                        {selectedCustomer.phone}
+                      </Text>
+                    )}
+                  </View>
+                  <Button mode="outlined" onPress={() => setCustomerDialogVisible(true)} compact>
+                    Change
+                  </Button>
+                </Card.Content>
+              </Card>
 
         {/* Cart Listing Header */}
         <View style={styles.sectionHeader}>
@@ -599,6 +889,8 @@ export const InvoiceBuilderScreen = ({ navigation }: any) => {
         </Button>
         <View style={{ height: 40 }} />
         </View>
+        )}
+        </View>
       </ScrollView>
 
       {/* PORTALS FOR DIALOG SELECTORS */}
@@ -648,7 +940,7 @@ export const InvoiceBuilderScreen = ({ navigation }: any) => {
                     onChangeText={(text) => {
                       let sanitized = text.replace(/,/g, '.').replace(/[^0-9.]/g, '');
                       const u = (editingCartItem.unit || '').toLowerCase();
-                      if (['pcs', 'numbers', 'number', 'pack', 'box', 'strip', 'tablet'].includes(u)) {
+                      if (['pcs', 'nos', 'no', 'numbers', 'number', 'pack', 'box', 'strip', 'tablet'].includes(u)) {
                         sanitized = sanitized.replace(/\./g, '');
                       } else {
                         const parts = sanitized.split('.');
@@ -863,6 +1155,132 @@ export const InvoiceBuilderScreen = ({ navigation }: any) => {
             <Button onPress={() => setProductDialogVisible(false)}>Cancel</Button>
           </Dialog.Actions>
         </Dialog>
+
+        {/* All Invoices Filter & PDF Reports Modal */}
+        <Dialog visible={filterModalVisible} onDismiss={() => setFilterModalVisible(false)} style={styles.dialog}>
+          <Dialog.Title style={styles.boldText}>Filter Invoices & PDF Reports</Dialog.Title>
+          <Dialog.ScrollArea style={{ maxHeight: 460, paddingHorizontal: 0 }}>
+            <ScrollView contentContainerStyle={{ paddingHorizontal: 24, paddingVertical: 12, gap: 16 }}>
+              {/* Filter by Date - Responsive Flex Wrap Chips */}
+              <View style={{ gap: 8 }}>
+                <Text variant="labelLarge" style={{ fontWeight: 'bold', color: theme.colors.primary }}>
+                  FILTER BY DATE
+                </Text>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                  {[
+                    { value: 'all', label: 'All Dates', icon: 'calendar-multiselect' },
+                    { value: 'today', label: 'Today', icon: 'calendar-today' },
+                    { value: 'week', label: 'Past 7 Days', icon: 'calendar-week' },
+                    { value: 'month', label: 'This Month', icon: 'calendar-month' },
+                  ].map((item) => {
+                    const selected = historyDateFilter === item.value;
+                    return (
+                      <Chip
+                        key={item.value}
+                        selected={selected}
+                        onPress={() => setHistoryDateFilter(item.value as any)}
+                        icon={selected ? 'check-circle' : item.icon}
+                        selectedColor="#FFFFFF"
+                        style={{
+                          backgroundColor: selected ? theme.colors.primary : '#F0F4F8',
+                          borderColor: selected ? theme.colors.primary : '#D0D7DE',
+                          borderWidth: selected ? 1.5 : 1,
+                        }}
+                        textStyle={{
+                          fontWeight: 'bold',
+                          fontSize: 13,
+                          color: selected ? '#FFFFFF' : '#333333',
+                        }}
+                      >
+                        {item.label}
+                      </Chip>
+                    );
+                  })}
+                </View>
+              </View>
+
+              <Divider />
+
+              {/* Filter by Status - Responsive Flex Wrap Chips */}
+              <View style={{ gap: 8 }}>
+                <Text variant="labelLarge" style={{ fontWeight: 'bold', color: theme.colors.primary }}>
+                  FILTER BY PAYMENT STATUS
+                </Text>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                  {[
+                    { value: 'all', label: 'All Status', icon: 'circle-outline' },
+                    { value: 'Paid', label: 'Paid Only', icon: 'check-circle' },
+                    { value: 'Unpaid', label: 'Unpaid Only', icon: 'clock-outline' },
+                  ].map((item) => {
+                    const selected = historyStatusFilter === item.value;
+                    return (
+                      <Chip
+                        key={item.value}
+                        selected={selected}
+                        onPress={() => setHistoryStatusFilter(item.value as any)}
+                        icon={selected ? 'check-circle' : item.icon}
+                        selectedColor="#FFFFFF"
+                        style={{
+                          backgroundColor: selected ? theme.colors.primary : '#F0F4F8',
+                          borderColor: selected ? theme.colors.primary : '#D0D7DE',
+                          borderWidth: selected ? 1.5 : 1,
+                        }}
+                        textStyle={{
+                          fontWeight: 'bold',
+                          fontSize: 13,
+                          color: selected ? '#FFFFFF' : '#333333',
+                        }}
+                      >
+                        {item.label}
+                      </Chip>
+                    );
+                  })}
+                </View>
+              </View>
+
+              <Divider />
+
+              {/* PDF Reports Options */}
+              <View style={{ gap: 10 }}>
+                <Text variant="labelLarge" style={{ fontWeight: 'bold', color: theme.colors.primary }}>
+                  EXPORT & SHARE PDF SALES REPORTS
+                </Text>
+
+                <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
+                  Share PDF sales reports according to your selected date and payment status filters.
+                </Text>
+
+                {/* Responsive Share Buttons Layout */}
+                <View style={{ flexDirection: width < 420 ? 'column' : 'row', gap: 8 }}>
+                  <Button
+                    mode="contained"
+                    icon="share-variant-outline"
+                    onPress={() => { setFilterModalVisible(false); handleSharePdfReport('summary'); }}
+                    style={{ flex: width < 420 ? undefined : 1, borderRadius: 8 }}
+                    labelStyle={{ fontSize: 12, marginVertical: 6 }}
+                    compact
+                  >
+                    Share Summary PDF
+                  </Button>
+                  <Button
+                    mode="contained"
+                    icon="file-table-outline"
+                    onPress={() => { setFilterModalVisible(false); handleSharePdfReport('detailed'); }}
+                    style={{ flex: width < 420 ? undefined : 1, borderRadius: 8 }}
+                    labelStyle={{ fontSize: 12, marginVertical: 6 }}
+                    compact
+                  >
+                    Share Itemized PDF
+                  </Button>
+                </View>
+              </View>
+            </ScrollView>
+          </Dialog.ScrollArea>
+          <Dialog.Actions>
+            <Button onPress={() => { setHistoryDateFilter('all'); setHistoryStatusFilter('all'); }}>Clear Filters</Button>
+            <Button mode="contained" onPress={() => setFilterModalVisible(false)}>Done</Button>
+          </Dialog.Actions>
+        </Dialog>
       </Portal>
 
       {/* Loading Overlay Spinner */}
@@ -880,6 +1298,16 @@ export const InvoiceBuilderScreen = ({ navigation }: any) => {
           </View>
         </Portal>
       )}
+
+      {/* Floating Go To Top Button for All Invoices */}
+      {activeTab === 'history' && showGoToTop && (
+        <FAB
+          icon="arrow-up"
+          style={styles.goToTopFab}
+          color="#FFFFFF"
+          onPress={scrollToTop}
+        />
+      )}
     </View>
   );
 };
@@ -887,6 +1315,14 @@ export const InvoiceBuilderScreen = ({ navigation }: any) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+  },
+  goToTopFab: {
+    position: 'absolute',
+    margin: 16,
+    right: 16,
+    bottom: 24,
+    backgroundColor: '#1976D2',
+    borderRadius: 28,
   },
   boldText: {
     fontWeight: 'bold',
@@ -981,5 +1417,9 @@ const styles = StyleSheet.create({
   loadingContent: {
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  dialog: {
+    borderRadius: 16,
+    backgroundColor: '#FFFFFF',
   },
 });
