@@ -182,9 +182,9 @@ export const formatThermalReceipt = (
     wrappedAddress.forEach((addrLine) => lines.push(centerText(addrLine, width)));
   }
   
-  if (org?.phone || org?.mobile) {
-    const contactLine = [org.phone, org.mobile].filter(Boolean).join(', ');
-    lines.push(centerText(`Ph: ${contactLine}`, width));
+  const orgMobile = (org?.mobile || org?.phone || '').trim();
+  if (orgMobile) {
+    lines.push(centerText(`Ph: ${orgMobile}`, width));
   }
   
   if (org?.showGstOnBill && org?.gstNumber) {
