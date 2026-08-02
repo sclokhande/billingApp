@@ -1,10 +1,40 @@
 import { Platform, PermissionsAndroid, NativeModules, NativeEventEmitter } from 'react-native';
+import authorizedPrintersConfig from '../config/authorized_printers.json';
 
 export interface BluetoothDevice {
   name: string;
   address: string;
   connected?: boolean;
 }
+
+/**
+ * Validates whether a Bluetooth device MAC address belongs to authorized Parchiwala brand list in config JSON
+ */
+export const isParchiwalaPrinterAddress = (address: string): { isAllowed: boolean; message: string } => {
+  const cleanAddr = (address || '').toUpperCase().trim();
+  const defaultMsg =
+    authorizedPrintersConfig.supportMessage ||
+    'This printer does not belong to parchiwala brand so could you please connect parchiwala printer or connect with parchiwala support team';
+
+  if (!cleanAddr) {
+    return { isAllowed: false, message: defaultMsg };
+  }
+
+  // 1. Check exact MAC address match
+  const allowedAddresses = (authorizedPrintersConfig.allowedAddresses || []).map((a) => a.toUpperCase().trim());
+  if (allowedAddresses.includes(cleanAddr)) {
+    return { isAllowed: true, message: '' };
+  }
+
+  // 2. Check MAC address prefix match
+  const allowedPrefixes = (authorizedPrintersConfig.allowedPrefixes || []).map((p) => p.toUpperCase().trim());
+  const hasPrefixMatch = allowedPrefixes.some((prefix) => prefix && cleanAddr.startsWith(prefix));
+  if (hasPrefixMatch) {
+    return { isAllowed: true, message: '' };
+  }
+
+  return { isAllowed: false, message: defaultMsg };
+};
 
 const { BluetoothScanner } = NativeModules;
 const scannerEventEmitter = BluetoothScanner ? new NativeEventEmitter(BluetoothScanner) : null;
@@ -201,6 +231,11 @@ const withTimeout = <T>(promise: Promise<T>, timeoutMs: number = 4000, timeoutMs
  * Connects to a selected bluetooth printer with timeout safety
  */
 export const connectBluetoothPrinter = async (device: BluetoothDevice): Promise<boolean> => {
+  const brandCheck = isParchiwalaPrinterAddress(device.address);
+  if (!brandCheck.isAllowed) {
+    throw new Error(brandCheck.message);
+  }
+
   if (NativeBLEPrinter) {
     try {
       await NativeBLEPrinter.init();
@@ -211,6 +246,7 @@ export const connectBluetoothPrinter = async (device: BluetoothDevice): Promise<
     } catch (e) {
       console.warn('[BluetoothPrinterService] Real connection failed or timed out:', e);
       isPrinterConnectedSession = false;
+      throw e;
     }
   }
   return false;
@@ -412,6 +448,11 @@ export const enableBluetooth = async (): Promise<boolean> => {
 };
 
 export const pairBluetoothDevice = async (address: string): Promise<boolean> => {
+  const brandCheck = isParchiwalaPrinterAddress(address);
+  if (!brandCheck.isAllowed) {
+    throw new Error(brandCheck.message);
+  }
+
   if (Platform.OS === 'android' && BluetoothScanner) {
     try {
       return await BluetoothScanner.pairDevice(address);
@@ -433,3 +474,32 @@ export const isDeviceBonded = async (address: string): Promise<boolean> => {
   }
   return true; // default to true on iOS / simulator
 };
+
+export const isLocationEnabled = async (): Promise<boolean> => {
+  if (Platform.OS === 'android' && BluetoothScanner) {
+    try {
+      return await BluetoothScanner.isLocationEnabled();
+    } catch (e) {
+      console.warn('[BluetoothPrinterService] Error checking Location status:', e);
+    }
+  }
+  return true; // default to true on iOS / simulator
+};
+
+export const openLocationSettings = async (): Promise<boolean> => {
+  if (Platform.OS === 'android' && BluetoothScanner) {
+    try {
+      return await BluetoothScanner.openLocationSettings();
+    } catch (e) {
+      console.warn('[BluetoothPrinterService] Error opening location settings:', e);
+    }
+  }
+  return false;
+};
+
+export const checkSystemServices = async (): Promise<{ bluetoothEnabled: boolean; locationEnabled: boolean }> => {
+  const bluetoothEnabled = await isBluetoothEnabled();
+  const locationEnabled = await isLocationEnabled();
+  return { bluetoothEnabled, locationEnabled };
+};
+

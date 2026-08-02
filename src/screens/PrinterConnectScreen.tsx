@@ -1,21 +1,54 @@
 import React, { useState, useEffect } from 'react';
 import { StyleSheet, View, ScrollView, Alert, ActivityIndicator } from 'react-native';
-import { Text, Card, Button, List, Divider, useTheme, Avatar, IconButton } from 'react-native-paper';
+import { Text, Card, Button, List, Divider, useTheme, Avatar, IconButton, Chip } from 'react-native-paper';
 import { useBilling } from '../context/BillingContext';
-import { BluetoothDevice, scanBluetoothPrinters, ensureBluetoothConnected } from '../services/bluetoothPrinterService';
+import { 
+  BluetoothDevice, 
+  scanBluetoothPrinters, 
+  ensureBluetoothConnected, 
+  enableBluetooth, 
+  openLocationSettings 
+} from '../services/bluetoothPrinterService';
 
 export const PrinterConnectScreen = ({ navigation }: any) => {
   const theme = useTheme() as any;
-  const { connectedPrinter, connectPrinter, disconnectPrinter, printReceipt } = useBilling();
+  const { connectedPrinter, connectPrinter, disconnectPrinter, printReceipt, checkServicesStatus } = useBilling();
 
   const [devices, setDevices] = useState<BluetoothDevice[]>([]);
   const [scanning, setScanning] = useState(false);
   const [connecting, setConnecting] = useState<string | null>(null); // address of device connecting
+  const [servicesState, setServicesState] = useState<{ bluetoothEnabled: boolean; locationEnabled: boolean }>({
+    bluetoothEnabled: true,
+    locationEnabled: true,
+  });
+
+  const checkServices = async () => {
+    try {
+      const status = await checkServicesStatus();
+      setServicesState(status);
+      return status;
+    } catch (e) {
+      return { bluetoothEnabled: true, locationEnabled: true };
+    }
+  };
 
   const startScan = async () => {
     try {
       setScanning(true);
       setDevices([]);
+      const status = await checkServices();
+      if (!status.bluetoothEnabled || !status.locationEnabled) {
+        Alert.alert(
+          'Services Disabled',
+          'Bluetooth connection and Location services must be enabled to scan for nearby thermal printers.',
+          [
+            { text: 'Cancel', style: 'cancel' },
+            ...(!status.bluetoothEnabled ? [{ text: 'Turn On Bluetooth', onPress: async () => { await enableBluetooth(); checkServices(); } }] : []),
+            ...(!status.locationEnabled ? [{ text: 'Location Settings', onPress: async () => { await openLocationSettings(); checkServices(); } }] : []),
+          ]
+        );
+        return;
+      }
       const found = await scanBluetoothPrinters();
       setDevices(found);
     } catch (e: any) {
@@ -34,8 +67,11 @@ export const PrinterConnectScreen = ({ navigation }: any) => {
       } else {
         Alert.alert('Connection Failed', `Could not connect to ${device.name}. Ensure the printer is powered on and within range.`);
       }
-    } catch (e) {
-      Alert.alert('Error', 'An unexpected error occurred during connection.');
+    } catch (e: any) {
+      Alert.alert(
+        'Printer Brand Error',
+        e.message || 'This printer does not belong to parchiwala brand so could you please connect parchiwala printer or connect with parchiwala support team'
+      );
     } finally {
       setConnecting(null);
     }
@@ -85,16 +121,29 @@ export const PrinterConnectScreen = ({ navigation }: any) => {
 
   useEffect(() => {
     const initScreen = async () => {
+      const status = await checkServices();
       // Background live socket health check when opening Bluetooth Printer screen
       if (connectedPrinter) {
-        const connCheck = await ensureBluetoothConnected(connectedPrinter);
-        if (!connCheck.ok) {
-          await disconnectPrinter();
+        if (!status.bluetoothEnabled || !status.locationEnabled) {
           Alert.alert(
-            'Printer Disconnected',
-            `Printer '${connectedPrinter.name}' is turned off or unreachable. Automatically disconnected so you can pair or reconnect.`,
-            [{ text: 'OK' }]
+            'Printer Service Required',
+            `Connected printer '${connectedPrinter.name}' requires Bluetooth and Location services. Please turn ON missing services to print receipts.`,
+            [
+              { text: 'Cancel', style: 'cancel' },
+              ...(!status.bluetoothEnabled ? [{ text: 'Turn On Bluetooth', onPress: async () => { await enableBluetooth(); checkServices(); } }] : []),
+              ...(!status.locationEnabled ? [{ text: 'Location Settings', onPress: async () => { await openLocationSettings(); checkServices(); } }] : []),
+            ]
           );
+        } else {
+          const connCheck = await ensureBluetoothConnected(connectedPrinter);
+          if (!connCheck.ok) {
+            await disconnectPrinter();
+            Alert.alert(
+              'Printer Disconnected',
+              `Printer '${connectedPrinter.name}' is turned off or unreachable. Automatically disconnected so you can pair or reconnect.`,
+              [{ text: 'OK' }]
+            );
+          }
         }
       }
       startScan();
@@ -107,6 +156,34 @@ export const PrinterConnectScreen = ({ navigation }: any) => {
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
       <ScrollView contentContainerStyle={styles.scrollContent}>
         
+        {/* Service Status Header Card */}
+        <Card style={styles.card} mode="outlined">
+          <Card.Content style={{ paddingVertical: 12 }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Text variant="titleSmall" style={styles.boldText}>Required System Services</Text>
+              <Button mode="text" compact onPress={checkServices} icon="refresh">Check</Button>
+            </View>
+            <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
+              <Chip 
+                icon={servicesState.bluetoothEnabled ? 'bluetooth' : 'bluetooth-off'} 
+                style={{ backgroundColor: servicesState.bluetoothEnabled ? '#E8F5E9' : '#FFEBEE' }}
+                textStyle={{ color: servicesState.bluetoothEnabled ? '#2E7D32' : '#C62828', fontSize: 12 }}
+                onPress={!servicesState.bluetoothEnabled ? () => enableBluetooth().then(checkServices) : undefined}
+              >
+                {servicesState.bluetoothEnabled ? 'Bluetooth ON' : 'Bluetooth OFF'}
+              </Chip>
+              <Chip 
+                icon={servicesState.locationEnabled ? 'map-marker-check' : 'map-marker-off'} 
+                style={{ backgroundColor: servicesState.locationEnabled ? '#E8F5E9' : '#FFEBEE' }}
+                textStyle={{ color: servicesState.locationEnabled ? '#2E7D32' : '#C62828', fontSize: 12 }}
+                onPress={!servicesState.locationEnabled ? () => openLocationSettings().then(checkServices) : undefined}
+              >
+                {servicesState.locationEnabled ? 'Location ON' : 'Location OFF'}
+              </Chip>
+            </View>
+          </Card.Content>
+        </Card>
+
         {/* Status Card */}
         <Card style={styles.card} mode="outlined">
           <Card.Content>
@@ -116,11 +193,13 @@ export const PrinterConnectScreen = ({ navigation }: any) => {
             {connectedPrinter ? (
               <View style={styles.connectedBox}>
                 <View style={styles.statusRow}>
-                  <Avatar.Icon size={44} icon="check-circle" style={{ backgroundColor: '#E8F5E9' }} color="#4CAF50" />
+                  <Avatar.Icon size={44} icon={servicesState.bluetoothEnabled && servicesState.locationEnabled ? "check-circle" : "alert-circle"} style={{ backgroundColor: servicesState.bluetoothEnabled && servicesState.locationEnabled ? '#E8F5E9' : '#FFF3E0' }} color={servicesState.bluetoothEnabled && servicesState.locationEnabled ? "#4CAF50" : "#EF6C00"} />
                   <View style={{ marginLeft: 12, flex: 1 }}>
                     <Text variant="titleMedium" style={styles.boldText}>{connectedPrinter.name}</Text>
                     <Text variant="bodySmall" style={{ color: theme.colors.outline }}>{connectedPrinter.address}</Text>
-                    <Text variant="labelMedium" style={{ color: '#4CAF50', fontWeight: 'bold', marginTop: 2 }}>Connected</Text>
+                    <Text variant="labelMedium" style={{ color: servicesState.bluetoothEnabled && servicesState.locationEnabled ? '#4CAF50' : '#EF6C00', fontWeight: 'bold', marginTop: 2 }}>
+                      {servicesState.bluetoothEnabled && servicesState.locationEnabled ? 'Connected' : 'Services Disabled'}
+                    </Text>
                   </View>
                 </View>
                 
@@ -147,9 +226,11 @@ export const PrinterConnectScreen = ({ navigation }: any) => {
               <View style={styles.disconnectedBox}>
                 <View style={styles.statusRow}>
                   <Avatar.Icon size={44} icon="close-circle" style={{ backgroundColor: '#FFEBEE' }} color="#F44336" />
-                  <View style={{ marginLeft: 12 }}>
+                  <View style={{ marginLeft: 12, flex: 1, flexShrink: 1 }}>
                     <Text variant="titleMedium" style={styles.boldText}>No Printer Connected</Text>
-                    <Text variant="bodySmall" style={{ color: theme.colors.outline }}>Parchiwala requires a Bluetooth printer to print physical bills.</Text>
+                    <Text variant="bodySmall" style={{ color: theme.colors.outline, flexWrap: 'wrap', marginTop: 2 }}>
+                      Parchiwala requires a Bluetooth printer to print physical bills.
+                    </Text>
                   </View>
                 </View>
               </View>

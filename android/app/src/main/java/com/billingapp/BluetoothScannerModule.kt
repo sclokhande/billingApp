@@ -6,6 +6,8 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.location.LocationManager
+import android.provider.Settings
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
@@ -165,6 +167,40 @@ class BluetoothScannerModule(reactContext: ReactApplicationContext) : ReactConte
 
         try {
             val intent = Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE)
+            val currentActivity = reactApplicationContext.currentActivity
+            if (currentActivity != null) {
+                currentActivity.startActivity(intent)
+                promise.resolve(true)
+            } else {
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                reactApplicationContext.startActivity(intent)
+                promise.resolve(true)
+            }
+        } catch (e: Exception) {
+            promise.reject("ERROR", e.message, e)
+        }
+    }
+
+    @ReactMethod
+    fun isLocationEnabled(promise: Promise) {
+        try {
+            val locationManager = reactApplicationContext.getSystemService(Context.LOCATION_SERVICE) as? LocationManager
+            if (locationManager == null) {
+                promise.resolve(false)
+                return
+            }
+            val isGpsEnabled = locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)
+            val isNetworkEnabled = locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
+            promise.resolve(isGpsEnabled || isNetworkEnabled)
+        } catch (e: Exception) {
+            promise.resolve(false)
+        }
+    }
+
+    @ReactMethod
+    fun openLocationSettings(promise: Promise) {
+        try {
+            val intent = Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS)
             val currentActivity = reactApplicationContext.currentActivity
             if (currentActivity != null) {
                 currentActivity.startActivity(intent)

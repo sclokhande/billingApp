@@ -4,7 +4,19 @@ import { initDB, getDBMode } from '../db/db';
 import * as dbOps from '../db/operations';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Alert } from 'react-native';
-import { BluetoothDevice, connectBluetoothPrinter, disconnectBluetoothPrinter, printReceiptRaw, setConnectedPrinterState, isBluetoothEnabled, ensureBluetoothConnected } from '../services/bluetoothPrinterService';
+import { 
+  BluetoothDevice, 
+  connectBluetoothPrinter, 
+  disconnectBluetoothPrinter, 
+  printReceiptRaw, 
+  setConnectedPrinterState, 
+  isBluetoothEnabled, 
+  isLocationEnabled,
+  enableBluetooth,
+  openLocationSettings,
+  checkSystemServices,
+  ensureBluetoothConnected 
+} from '../services/bluetoothPrinterService';
 
 interface BillingContextProps {
   dbMode: string;
@@ -31,6 +43,7 @@ interface BillingContextProps {
   disconnectPrinter: () => Promise<void>;
   printReceipt: (text: string, navigation?: any) => Promise<boolean>;
   verifyPrinterConnectionOrRedirect: (navigation: any) => Promise<boolean>;
+  checkServicesStatus: () => Promise<{ bluetoothEnabled: boolean; locationEnabled: boolean }>;
 }
 
 const BillingContext = createContext<BillingContextProps | undefined>(undefined);
@@ -63,13 +76,37 @@ export const BillingProvider: React.FC<{ children: React.ReactNode }> = ({ child
         if (savedPrinter) {
           try {
             const parsed = JSON.parse(savedPrinter);
-            const btEnabled = await isBluetoothEnabled();
-            if (btEnabled) {
-              setConnectedPrinter(parsed);
-              setConnectedPrinterState(parsed); // Sync printer state with service
+            setConnectedPrinter(parsed);
+            setConnectedPrinterState(parsed); // Sync printer state with service
+
+            // Check system Bluetooth and Location services status for saved printer on app launch
+            const { bluetoothEnabled, locationEnabled } = await checkSystemServices();
+
+            if (!bluetoothEnabled || !locationEnabled) {
+              let missingServicesMsg = '';
+              if (!bluetoothEnabled && !locationEnabled) {
+                missingServicesMsg = 'Bluetooth connection and Location services are currently turned OFF.';
+              } else if (!bluetoothEnabled) {
+                missingServicesMsg = 'Bluetooth connection is currently turned OFF.';
+              } else {
+                missingServicesMsg = 'Location services are currently turned OFF.';
+              }
+
+              Alert.alert(
+                'Printer Service Required',
+                `You have previously configured printer '${parsed.name}'. ${missingServicesMsg}\n\nPlease start this service to connect your printer and print receipts.`,
+                [
+                  { text: 'Cancel', style: 'cancel' },
+                  ...(!bluetoothEnabled ? [{ text: 'Turn On Bluetooth', onPress: () => enableBluetooth() }] : []),
+                  ...(!locationEnabled ? [{ text: 'Location Settings', onPress: () => openLocationSettings() }] : []),
+                ]
+              );
             } else {
-              setConnectedPrinter(null);
-              setConnectedPrinterState(null);
+              // Both services enabled: attempt background socket check
+              const connCheck = await ensureBluetoothConnected(parsed);
+              if (!connCheck.ok) {
+                console.warn('Saved printer offline or not reachable on startup:', parsed.name);
+              }
             }
           } catch (e) {
             console.warn('Failed to restore saved printer state:', e);
@@ -364,6 +401,7 @@ export const BillingProvider: React.FC<{ children: React.ReactNode }> = ({ child
         disconnectPrinter,
         printReceipt,
         verifyPrinterConnectionOrRedirect,
+        checkServicesStatus: checkSystemServices,
       }}
     >
       {children}
