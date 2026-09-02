@@ -1,4 +1,4 @@
-package com.billingapp
+package com.parchiwala
 
 import android.app.Application
 import com.facebook.react.PackageList

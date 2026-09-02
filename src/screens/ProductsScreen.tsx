@@ -26,7 +26,7 @@ const UNIT_PRESETS = [
 
 export const ProductsScreen = () => {
   const theme = useTheme() as any;
-  const { products, saveProduct, deleteProduct, organization, isLoading } = useBilling();
+  const { products, saveProduct, deleteProduct, organization, isLoading, isDemoMode } = useBilling();
   const { width } = useWindowDimensions();
 
   const numColumns = width > 600 ? 2 : 1;
@@ -58,6 +58,10 @@ export const ProductsScreen = () => {
   const [stockQuantity, setStockQuantity] = useState('0');
 
   const openAddDialog = () => {
+    if (isDemoMode && products.length >= 3) {
+      Alert.alert('Demo Limit Reached', 'Demo Version Limit: You can add a maximum of 3 inventory products in the Demo build.');
+      return;
+    }
     setEditingProduct(null);
     setName('');
     setDescription('');

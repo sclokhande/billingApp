@@ -11,7 +11,8 @@ export interface BluetoothDevice {
  * Validates whether a Bluetooth device MAC address belongs to authorized Parchiwala brand list in config JSON
  */
 export const isParchiwalaPrinterAddress = (address: string): { isAllowed: boolean; message: string } => {
-  const cleanAddr = (address || '').toUpperCase().trim();
+  // Normalize MAC address by converting to uppercase and stripping colons/spaces/dashes
+  const cleanAddr = (address || '').replace(/[^A-FA-f0-9]/g, '').toUpperCase();
   const defaultMsg =
     authorizedPrintersConfig.supportMessage ||
     'This printer does not belong to parchiwala brand so could you please connect parchiwala printer or connect with parchiwala support team';
@@ -20,16 +21,12 @@ export const isParchiwalaPrinterAddress = (address: string): { isAllowed: boolea
     return { isAllowed: false, message: defaultMsg };
   }
 
-  // 1. Check exact MAC address match
-  const allowedAddresses = (authorizedPrintersConfig.allowedAddresses || []).map((a) => a.toUpperCase().trim());
-  if (allowedAddresses.includes(cleanAddr)) {
-    return { isAllowed: true, message: '' };
-  }
+  // Strict check: Exact MAC address match only (normalized)
+  const allowedAddresses = (authorizedPrintersConfig.allowedAddresses || []).map((a) =>
+    a.replace(/[^A-FA-f0-9]/g, '').toUpperCase()
+  );
 
-  // 2. Check MAC address prefix match
-  const allowedPrefixes = (authorizedPrintersConfig.allowedPrefixes || []).map((p) => p.toUpperCase().trim());
-  const hasPrefixMatch = allowedPrefixes.some((prefix) => prefix && cleanAddr.startsWith(prefix));
-  if (hasPrefixMatch) {
+  if (allowedAddresses.includes(cleanAddr)) {
     return { isAllowed: true, message: '' };
   }
 
@@ -66,62 +63,23 @@ export const requestBluetoothPermissions = async (): Promise<boolean> => {
 
   if (Platform.OS === 'android') {
     try {
-      const apiLevel = Platform.Version as number;
-      
-      if (apiLevel >= 31) {
-        // Android 12+ requires BLUETOOTH_SCAN, BLUETOOTH_CONNECT, and location permissions to scan unbonded devices
-        const scanGranted = await PermissionsAndroid.request(
-          PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN,
-          {
-            title: 'Bluetooth Scan Permission',
-            message: 'Parchiwala needs access to scan for nearby thermal printers.',
-            buttonNeutral: 'Ask Me Later',
-            buttonNegative: 'Cancel',
-            buttonPositive: 'OK',
-          }
-        );
+      // Request Bluetooth & Location permissions directly across all Android devices without version checks
+      const permissionsToRequest = [
+        PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN,
+        PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT,
+        PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
+      ];
 
-        const connectGranted = await PermissionsAndroid.request(
-          PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT,
-          {
-            title: 'Bluetooth Connect Permission',
-            message: 'Parchiwala needs access to connect to your thermal printer.',
-            buttonNeutral: 'Ask Me Later',
-            buttonNegative: 'Cancel',
-            buttonPositive: 'OK',
-          }
-        );
+      const granted = await PermissionsAndroid.requestMultiple(permissionsToRequest);
 
-        const locationGranted = await PermissionsAndroid.request(
-          PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
-          {
-            title: 'Location Permission for Bluetooth',
-            message: 'Parchiwala needs location access to discover nearby Bluetooth devices.',
-            buttonNeutral: 'Ask Me Later',
-            buttonNegative: 'Cancel',
-            buttonPositive: 'OK',
-          }
-        );
+      const scanGranted =
+        granted[PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN] === PermissionsAndroid.RESULTS.GRANTED;
+      const connectGranted =
+        granted[PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT] === PermissionsAndroid.RESULTS.GRANTED;
+      const locationGranted =
+        granted[PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION] === PermissionsAndroid.RESULTS.GRANTED;
 
-        return (
-          scanGranted === PermissionsAndroid.RESULTS.GRANTED &&
-          connectGranted === PermissionsAndroid.RESULTS.GRANTED &&
-          locationGranted === PermissionsAndroid.RESULTS.GRANTED
-        );
-      } else {
-        // Android 11 and below requires ACCESS_FINE_LOCATION to scan for BLE devices
-        const locationGranted = await PermissionsAndroid.request(
-          PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
-          {
-            title: 'Location Permission for Bluetooth',
-            message: 'Parchiwala needs location access to scan for nearby Bluetooth printers.',
-            buttonNeutral: 'Ask Me Later',
-            buttonNegative: 'Cancel',
-            buttonPositive: 'OK',
-          }
-        );
-        return locationGranted === PermissionsAndroid.RESULTS.GRANTED;
-      }
+      return locationGranted || scanGranted || connectGranted;
     } catch (err) {
       console.warn('[BluetoothPrinterService] Permission request error:', err);
       return false;

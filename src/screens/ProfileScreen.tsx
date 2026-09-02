@@ -22,7 +22,7 @@ import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityI
 
 export const ProfileScreen = ({ navigation }: any) => {
   const theme = useTheme() as any;
-  const { organization, updateOrgProfile, clearAllData, clearInvoicesOnly, dbMode, exportData, importData, isLoading, connectedPrinter } = useBilling();
+  const { organization, updateOrgProfile, clearAllData, clearInvoicesOnly, dbMode, exportData, importData, isLoading, connectedPrinter, isDemoMode } = useBilling();
   const { width } = useWindowDimensions();
 
   // Form states
@@ -444,6 +444,18 @@ export const ProfileScreen = ({ navigation }: any) => {
       <View style={{ width: '100%', maxWidth: 650, alignSelf: 'center' }}>
         <Card style={styles.card} mode="outlined">
           <Card.Content style={{ gap: 12 }}>
+            {isDemoMode && (
+              <Card style={{ backgroundColor: '#FFF3E0', borderColor: '#FFE0B2', marginBottom: 4 }} mode="outlined">
+                <Card.Content style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 10 }}>
+                  <Avatar.Icon size={36} icon="lock" style={{ backgroundColor: '#FFE0B2' }} color="#E65100" />
+                  <View style={{ flex: 1 }}>
+                    <Text variant="titleSmall" style={{ fontWeight: 'bold', color: '#E65100' }}>Demo Version Locked</Text>
+                    <Text variant="bodySmall" style={{ color: '#EF6C00' }}>Organization profile details are default dummy data and cannot be edited in Demo Mode.</Text>
+                  </View>
+                </Card.Content>
+              </Card>
+            )}
+
             <Text variant="titleMedium" style={styles.boldText}>
               Organization Details
             </Text>
@@ -452,6 +464,7 @@ export const ProfileScreen = ({ navigation }: any) => {
               label="Organization Name *"
               value={name}
               onChangeText={setName}
+              disabled={isDemoMode}
               mode="outlined"
               style={styles.input}
               left={<TextInput.Icon icon="office-building" />}
@@ -461,6 +474,7 @@ export const ProfileScreen = ({ navigation }: any) => {
               label="Billing Address *"
               value={address}
               onChangeText={setAddress}
+              disabled={isDemoMode}
               mode="outlined"
               multiline
               numberOfLines={2}
@@ -472,6 +486,7 @@ export const ProfileScreen = ({ navigation }: any) => {
               label="Mobile Number"
               value={mobile}
               onChangeText={setMobile}
+              disabled={isDemoMode}
               keyboardType="phone-pad"
               mode="outlined"
               style={styles.input}
@@ -482,6 +497,7 @@ export const ProfileScreen = ({ navigation }: any) => {
               label="Email Address"
               value={email}
               onChangeText={setEmail}
+              disabled={isDemoMode}
               keyboardType="email-address"
               autoCapitalize="none"
               mode="outlined"
@@ -499,6 +515,7 @@ export const ProfileScreen = ({ navigation }: any) => {
               label="GSTIN Number (Optional)"
               value={gstNumber}
               onChangeText={(text) => setGstNumber(text.toUpperCase().replace(/[^A-Z0-9]/g, ''))}
+              disabled={isDemoMode}
               maxLength={15}
               mode="outlined"
               placeholder="e.g. 27AAAAA1111A1Z1"
@@ -510,7 +527,8 @@ export const ProfileScreen = ({ navigation }: any) => {
             <Checkbox.Item
               label="Use GSTIN and Tax calculations on bills"
               status={showGstOnBill ? 'checked' : 'unchecked'}
-              onPress={() => setShowGstOnBill(!showGstOnBill)}
+              onPress={() => !isDemoMode && setShowGstOnBill(!showGstOnBill)}
+              disabled={isDemoMode}
               mode="android"
               position="leading"
               labelStyle={styles.checkboxLabel}
@@ -528,6 +546,7 @@ export const ProfileScreen = ({ navigation }: any) => {
               label="Invoice Slogan"
               value={slogan}
               onChangeText={setSlogan}
+              disabled={isDemoMode}
               mode="outlined"
               placeholder="e.g. Thank You Visit again"
               style={styles.input}
@@ -550,13 +569,14 @@ export const ProfileScreen = ({ navigation }: any) => {
                   <Card
                     key={item.value}
                     mode="outlined"
-                    onPress={() => setPrintWidth(item.value as '58mm' | '80mm')}
+                    onPress={() => !isDemoMode && setPrintWidth(item.value as '58mm' | '80mm')}
                     style={{
                       flex: 1,
                       borderRadius: 12,
                       borderWidth: selected ? 2 : 1,
                       borderColor: selected ? theme.colors.primary : '#D0D7DE',
                       backgroundColor: selected ? theme.colors.primaryContainer : '#FFFFFF',
+                      opacity: isDemoMode ? 0.6 : 1,
                     }}
                   >
                     <Card.Content style={{ paddingVertical: 12, paddingHorizontal: 12 }}>
@@ -596,7 +616,7 @@ export const ProfileScreen = ({ navigation }: any) => {
                 onPress={() => navigation.navigate('PrinterConnect')}
                 compact
               >
-                Configure
+                {connectedPrinter ? 'Manage Printer' : 'Setup Printer'}
               </Button>
             </View>
 
@@ -605,8 +625,9 @@ export const ProfileScreen = ({ navigation }: any) => {
               icon="content-save-outline"
               style={styles.saveBtn}
               onPress={handleSave}
+              disabled={isDemoMode}
             >
-              Save Store Settings
+              {isDemoMode ? 'Store Settings Locked (Demo)' : 'Save Store Settings'}
             </Button>
           </Card.Content>
         </Card>
@@ -634,13 +655,6 @@ export const ProfileScreen = ({ navigation }: any) => {
             </Button>
           </Card.Content>
         </Card>
-
-        {/* Developer Attribution Footer */}
-        <View style={styles.footerContainer}>
-          <Text variant="labelMedium" style={styles.footerText}>
-            Developed by Sushant Lokhande
-          </Text>
-        </View>
 
       </View>
 

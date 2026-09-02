@@ -31,7 +31,7 @@ export const DashboardScreen = ({ navigation }: any) => {
   }, [navigation, theme]);
 
   const handleCallSupport = () => {
-    const phoneNumber = '+918149730773';
+    const phoneNumber = '+918551010291';
     const url = Platform.OS === 'android' ? `tel:${phoneNumber}` : `telprompt:${phoneNumber}`;
     Linking.canOpenURL(url)
       .then((supported) => {
@@ -57,6 +57,15 @@ export const DashboardScreen = ({ navigation }: any) => {
         }
       })
       .catch(() => Alert.alert('Error', 'An error occurred while opening email.'));
+  };
+
+  const handleWebsiteSupport = async () => {
+    const websiteUrl = 'https://www.parchiwala.com';
+    try {
+      await Linking.openURL(websiteUrl);
+    } catch (error) {
+      Alert.alert('Error', 'Unable to open website. Please ensure a web browser is installed.');
+    }
   };
 
   // Helper to check if date matches today
@@ -400,13 +409,6 @@ export const DashboardScreen = ({ navigation }: any) => {
             />
           )}
         </View>
-
-        {/* Developer Attribution Footer */}
-        <View style={styles.footerContainer}>
-          <Text variant="labelMedium" style={styles.footerText}>
-            Developed by Sushant Lokhande
-          </Text>
-        </View>
       </View>
 
       {/* Help & Support Dialog */}
@@ -425,7 +427,7 @@ export const DashboardScreen = ({ navigation }: any) => {
               <Avatar.Icon size={36} icon="phone" style={{ backgroundColor: theme.colors.primary }} color={theme.colors.onPrimary} />
               <View style={{ marginLeft: 12, flex: 1 }}>
                 <Text variant="labelMedium" style={{ color: theme.colors.onPrimaryContainer }}>Call Support</Text>
-                <Text variant="titleMedium" style={[styles.boldText, { color: theme.colors.onPrimaryContainer }]}>+91 8149730773</Text>
+                <Text variant="titleMedium" style={[styles.boldText, { color: theme.colors.onPrimaryContainer }]}>+91 8551010291</Text>
               </View>
             </TouchableOpacity>
 
@@ -437,6 +439,17 @@ export const DashboardScreen = ({ navigation }: any) => {
               <View style={{ marginLeft: 12, flex: 1 }}>
                 <Text variant="labelMedium" style={{ color: theme.colors.onSecondaryContainer }}>Email Support</Text>
                 <Text variant="titleMedium" style={[styles.boldText, { color: theme.colors.onSecondaryContainer }]}>support@parchiwala.com</Text>
+              </View>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.contactRow, { backgroundColor: theme.colors.tertiaryContainer || theme.colors.surfaceVariant, marginTop: 12 }]}
+              onPress={handleWebsiteSupport}
+            >
+              <Avatar.Icon size={36} icon="web" style={{ backgroundColor: theme.colors.tertiary || theme.colors.primary }} color={theme.colors.onTertiary || theme.colors.onPrimary} />
+              <View style={{ marginLeft: 12, flex: 1 }}>
+                <Text variant="labelMedium" style={{ color: theme.colors.onTertiaryContainer || theme.colors.onSurfaceVariant }}>Official Website</Text>
+                <Text variant="titleMedium" style={[styles.boldText, { color: theme.colors.onTertiaryContainer || theme.colors.onSurfaceVariant }]}>www.parchiwala.com</Text>
               </View>
             </TouchableOpacity>
           </Dialog.Content>

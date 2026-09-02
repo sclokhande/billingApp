@@ -18,7 +18,7 @@ import { Customer } from '../db/types';
 
 export const CustomersScreen = () => {
   const theme = useTheme();
-  const { customers, saveCustomer, deleteCustomer, isLoading } = useBilling();
+  const { customers, saveCustomer, deleteCustomer, isLoading, isDemoMode } = useBilling();
   const { width } = useWindowDimensions();
 
   const numColumns = width > 600 ? 2 : 1;
@@ -48,6 +48,10 @@ export const CustomersScreen = () => {
   const [address, setAddress] = useState('');
 
   const openAddDialog = () => {
+    if (isDemoMode && customers.length >= 1) {
+      Alert.alert('Demo Limit Reached', 'Demo Version Limit: You can add a maximum of 1 customer in the Demo build.');
+      return;
+    }
     setEditingCustomer(null);
     setName('');
     setPhone('');

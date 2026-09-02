@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { StyleSheet, View, ScrollView, Alert, NativeModules, TurboModuleRegistry } from 'react-native';
 import { Text, Card, Button, Divider, useTheme, Avatar, IconButton, Portal, Dialog, TextInput, Snackbar } from 'react-native-paper';
 import { useBilling } from '../context/BillingContext';
+import { APP_CONFIG } from '../config/app_config';
 
 export const SecurityBackupScreen = ({ navigation }: any) => {
   const theme = useTheme() as any;
@@ -12,6 +13,7 @@ export const SecurityBackupScreen = ({ navigation }: any) => {
     importData,
     clearAllData,
     clearInvoicesOnly,
+    isDemoMode,
   } = useBilling();
 
   // Master Admin Recovery Key
@@ -63,17 +65,12 @@ export const SecurityBackupScreen = ({ navigation }: any) => {
     setSnackbarVisible(true);
   };
 
-  // Intercept Action with PIN Auth if configured
+  // Intercept Action with PIN Auth (Mandatory PIN Verification)
   const requestPinAuth = (action: 'export' | 'import' | 'wipe' | 'update_pin') => {
-    if (organization?.securityPin) {
-      setEnteredPin('');
-      setShowPinSecret(false);
-      setPinActionPending(action);
-      setPinModalVisible(true);
-    } else {
-      // No PIN configured yet, execute directly
-      executeAction(action);
-    }
+    setEnteredPin('');
+    setShowPinSecret(false);
+    setPinActionPending(action);
+    setPinModalVisible(true);
   };
 
   const executeAction = (action: 'export' | 'import' | 'wipe' | 'update_pin') => {
@@ -91,14 +88,19 @@ export const SecurityBackupScreen = ({ navigation }: any) => {
   };
 
   const verifyPinAndExecute = () => {
-    const activePin = organization?.securityPin || '';
+    const activePin = (organization?.securityPin || '').trim();
     const trimmedInput = enteredPin.trim();
     if (!trimmedInput) {
-      Alert.alert('PIN Required', 'Please enter your Security PIN.');
+      Alert.alert('PIN Required', 'Please enter your Security PIN or Activation Key.');
       return;
     }
 
-    if (trimmedInput === activePin || trimmedInput === MASTER_ADMIN_PIN) {
+    const isValid =
+      (activePin && trimmedInput === activePin) ||
+      trimmedInput.toUpperCase() === MASTER_ADMIN_PIN.toUpperCase() ||
+      trimmedInput.toUpperCase() === (APP_CONFIG.ACTIVATION_PIN || '').toUpperCase();
+
+    if (isValid) {
       setPinModalVisible(false);
       setEnteredPin('');
       const action = pinActionPending;
@@ -107,7 +109,7 @@ export const SecurityBackupScreen = ({ navigation }: any) => {
         executeAction(action);
       }
     } else {
-      showToast('Invalid Security PIN. Tap Forgot PIN to reset.', 'error');
+      showToast('Invalid Security PIN or Activation Key.', 'error');
     }
   };
 
@@ -369,6 +371,14 @@ export const SecurityBackupScreen = ({ navigation }: any) => {
                 </Text>
               </View>
             </View>
+            {isDemoMode && (
+              <View style={{ backgroundColor: '#FFF3E0', borderRadius: 8, padding: 10, marginTop: 4, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <Avatar.Icon size={24} icon="information-outline" style={{ backgroundColor: '#FFE0B2' }} color="#E65100" />
+                <Text style={{ fontSize: 12, color: '#E65100', flex: 1, fontWeight: '500' }}>
+                  Demo Version: Database Export and Restore features are disabled in this build.
+                </Text>
+              </View>
+            )}
           </Card.Content>
         </Card>
 
@@ -392,6 +402,7 @@ export const SecurityBackupScreen = ({ navigation }: any) => {
                 mode="contained"
                 icon="lock-reset"
                 onPress={() => requestPinAuth('update_pin')}
+                disabled={isDemoMode}
                 style={{ flex: 1 }}
               >
                 {organization?.securityPin ? 'Update PIN' : 'Set Security PIN'}
@@ -406,6 +417,7 @@ export const SecurityBackupScreen = ({ navigation }: any) => {
                     setConfirmNewPinInput('');
                     setForgotPinDialogVisible(true);
                   }}
+                  disabled={isDemoMode}
                   style={{ flex: 1 }}
                 >
                   Forgot PIN
@@ -428,17 +440,19 @@ export const SecurityBackupScreen = ({ navigation }: any) => {
                 mode="contained-tonal"
                 icon="export-variant"
                 onPress={() => requestPinAuth('export')}
+                disabled={isDemoMode}
                 style={{ flex: 1 }}
               >
-                Export Backup
+                {isDemoMode ? 'Export Disabled (Demo)' : 'Export Backup'}
               </Button>
               <Button
                 mode="outlined"
                 icon="import"
                 onPress={() => requestPinAuth('import')}
+                disabled={isDemoMode}
                 style={{ flex: 1 }}
               >
-                Restore Backup
+                {isDemoMode ? 'Restore Disabled (Demo)' : 'Restore Backup'}
               </Button>
             </View>
           </Card.Content>
@@ -492,12 +506,12 @@ export const SecurityBackupScreen = ({ navigation }: any) => {
           <Dialog.Content style={{ gap: 12 }}>
             <Text variant="bodyMedium">Please enter your Security PIN to perform this operation.</Text>
             <TextInput
-              label="Enter Security PIN"
+              label="Enter Security PIN or Activation Key"
               value={enteredPin}
-              onChangeText={setEnteredPin}
+              onChangeText={(text) => setEnteredPin(text.toUpperCase())}
               secureTextEntry={!showPinSecret}
-              keyboardType="numeric"
-              maxLength={8}
+              autoCapitalize="characters"
+              maxLength={20}
               mode="outlined"
               right={
                 <TextInput.Icon

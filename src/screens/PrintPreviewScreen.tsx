@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { StyleSheet, View, ScrollView, Alert, Platform, Share, useWindowDimensions } from 'react-native';
+import { StyleSheet, View, ScrollView, Alert, Platform, useWindowDimensions } from 'react-native';
 import { Text, Button, Card, Portal, Dialog, ActivityIndicator, useTheme } from 'react-native-paper';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { getInvoiceById, getInvoiceItems } from '../db/operations';
@@ -10,7 +10,7 @@ import { InvoiceItem } from '../db/types';
 export const PrintPreviewScreen = ({ route, navigation }: any) => {
   const { invoiceId, invoice: paramInvoice, items: paramItems } = route.params || {};
   const theme = useTheme() as any;
-  const { organization, customers, connectedPrinter, printReceipt } = useBilling();
+  const { organization, customers, connectedPrinter, printReceipt, isDemoMode } = useBilling();
   const { width: screenWidth } = useWindowDimensions();
   const insets = useSafeAreaInsets();
 
@@ -69,16 +69,7 @@ export const PrintPreviewScreen = ({ route, navigation }: any) => {
     }
   };
 
-  const handleShare = async () => {
-    try {
-      await Share.share({
-        message: receiptText,
-        title: `Invoice ${invoice?.invoiceNumber || ''}`,
-      });
-    } catch (e) {
-      Alert.alert('Error', 'Failed to share receipt.');
-    }
-  };
+
 
   if (loading) {
     return (
@@ -187,20 +178,13 @@ export const PrintPreviewScreen = ({ route, navigation }: any) => {
           Close
         </Button>
         <Button
-          mode="contained-tonal"
-          icon="share-variant"
-          style={styles.controlBtn}
-          onPress={handleShare}
-        >
-          Share
-        </Button>
-        <Button
           mode="contained"
           icon="printer"
-          style={[styles.controlBtn, { flex: 1.2 }]}
+          style={[styles.controlBtn, { flex: 1.5 }]}
           onPress={handlePrint}
+          disabled={isDemoMode}
         >
-          Print
+          {isDemoMode ? 'Print (Disabled)' : 'Print'}
         </Button>
       </View>
 

@@ -15,9 +15,9 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "13B07F861A680F5B00A75B9A"
-               BuildableName = "BillingApp.app"
-               BlueprintName = "BillingApp"
-               ReferencedContainer = "container:BillingApp.xcodeproj">
+               BuildableName = "Parchiwala.app"
+               BlueprintName = "Parchiwala"
+               ReferencedContainer = "container:Parchiwala.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
       </BuildActionEntries>
@@ -33,9 +33,9 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "00E356ED1AD99517003FC87E"
-               BuildableName = "BillingAppTests.xctest"
-               BlueprintName = "BillingAppTests"
-               ReferencedContainer = "container:BillingApp.xcodeproj">
+               BuildableName = "ParchiwalaTests.xctest"
+               BlueprintName = "ParchiwalaTests"
+               ReferencedContainer = "container:Parchiwala.xcodeproj">
             </BuildableReference>
          </TestableReference>
       </Testables>
@@ -55,9 +55,9 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "13B07F861A680F5B00A75B9A"
-            BuildableName = "BillingApp.app"
-            BlueprintName = "BillingApp"
-            ReferencedContainer = "container:BillingApp.xcodeproj">
+            BuildableName = "Parchiwala.app"
+            BlueprintName = "Parchiwala"
+            ReferencedContainer = "container:Parchiwala.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
    </LaunchAction>
@@ -72,9 +72,9 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "13B07F861A680F5B00A75B9A"
-            BuildableName = "BillingApp.app"
-            BlueprintName = "BillingApp"
-            ReferencedContainer = "container:BillingApp.xcodeproj">
+            BuildableName = "Parchiwala.app"
+            BlueprintName = "Parchiwala"
+            ReferencedContainer = "container:Parchiwala.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
    </ProfileAction>

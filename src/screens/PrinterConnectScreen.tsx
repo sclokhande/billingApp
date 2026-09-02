@@ -12,7 +12,7 @@ import {
 
 export const PrinterConnectScreen = ({ navigation }: any) => {
   const theme = useTheme() as any;
-  const { connectedPrinter, connectPrinter, disconnectPrinter, printReceipt, checkServicesStatus } = useBilling();
+  const { connectedPrinter, connectPrinter, disconnectPrinter, printReceipt, checkServicesStatus, isDemoMode } = useBilling();
 
   const [devices, setDevices] = useState<BluetoothDevice[]>([]);
   const [scanning, setScanning] = useState(false);
@@ -65,7 +65,7 @@ export const PrinterConnectScreen = ({ navigation }: any) => {
       if (success) {
         Alert.alert('Success', `Successfully connected to ${device.name}`);
       } else {
-        Alert.alert('Connection Failed', `Could not connect to ${device.name}. Ensure the printer is powered on and within range.`);
+        Alert.alert('Connection Failed', `Unable to connect to ${device.name}. Please verify that your Parchiwala printer is powered on and within range.`);
       }
     } catch (e: any) {
       Alert.alert(
@@ -208,9 +208,10 @@ export const PrinterConnectScreen = ({ navigation }: any) => {
                     mode="contained" 
                     icon="printer" 
                     onPress={handleTestPrint}
+                    disabled={isDemoMode}
                     style={{ flex: 1, marginRight: 8 }}
                   >
-                    Test Print
+                    {isDemoMode ? 'Test Print (Disabled)' : 'Test Print'}
                   </Button>
                   <Button 
                     mode="outlined" 
@@ -238,17 +239,6 @@ export const PrinterConnectScreen = ({ navigation }: any) => {
           </Card.Content>
         </Card>
 
-        {/* Helper Note for modern Android 10+ / Security Handshakes */}
-        <Card style={[styles.card, { backgroundColor: '#FFF9C4', borderColor: '#FBC02D' }]} mode="outlined">
-          <Card.Content style={{ paddingVertical: 10, paddingHorizontal: 12 }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-              <Avatar.Icon size={28} icon="information-outline" style={{ backgroundColor: 'transparent' }} color="#F57F17" />
-              <Text variant="bodySmall" style={{ marginLeft: 6, flex: 1, color: '#5D4037', fontSize: 11, lineHeight: 15 }}>
-                <Text style={{ fontWeight: 'bold' }}>Important for Android 10+:</Text> If your printer automatically prints a long <Text style={{ fontFamily: 'monospace', fontWeight: 'bold' }}>"BEGIN PUBLIC KEY"</Text> block, please <Text style={{ fontWeight: 'bold' }}>Unpair (Forget)</Text> the printer in your phone's system Bluetooth settings, then search and connect to it directly from the list below.
-              </Text>
-            </View>
-          </Card.Content>
-        </Card>
 
         {/* Scan / Discovered List */}
         <View style={styles.sectionHeader}>
@@ -282,9 +272,6 @@ export const PrinterConnectScreen = ({ navigation }: any) => {
               <Button mode="outlined" style={{ marginTop: 16 }} onPress={startScan}>
                 Scan Again
               </Button>
-              <Text variant="bodySmall" style={{ marginTop: 16, color: theme.colors.outline, textAlign: 'center', fontSize: 11, lineHeight: 16 }}>
-                Note: On Android 11+, both Bluetooth and Location (GPS) Services must be turned ON in your phone's pull-down quick settings menu to discover unbonded printers.
-              </Text>
             </View>
           ) : (
             devices.map((device, index) => {

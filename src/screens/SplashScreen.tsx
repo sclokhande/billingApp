@@ -1,7 +1,9 @@
 import React, { useEffect, useRef } from 'react';
 import { StyleSheet, View, Image, Animated, Dimensions } from 'react-native';
 import { Text, ActivityIndicator, useTheme } from 'react-native-paper';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useBilling } from '../context/BillingContext';
+import { APP_CONFIG } from '../config/app_config';
 
 export const SplashScreen = ({ navigation }: any) => {
   const theme = useTheme();
@@ -39,7 +41,22 @@ export const SplashScreen = ({ navigation }: any) => {
       }, 100);
     });
 
-    Promise.all([minimumDelay, databaseReady]).then(() => {
+    Promise.all([minimumDelay, databaseReady]).then(async () => {
+      if (APP_CONFIG.REQUIRE_ACTIVATION_PIN) {
+        try {
+          const isActivated = await AsyncStorage.getItem(APP_CONFIG.ACTIVATION_STORAGE_KEY);
+          if (isActivated !== 'true') {
+            navigation.reset({
+              index: 0,
+              routes: [{ name: 'Activation' }],
+            });
+            return;
+          }
+        } catch (e) {
+          console.error('[SplashScreen] Failed to check activation state:', e);
+        }
+      }
+
       navigation.reset({
         index: 0,
         routes: [{ name: 'MainTabs' }],

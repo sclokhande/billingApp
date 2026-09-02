@@ -15,6 +15,7 @@ import { ProductsScreen } from '../screens/ProductsScreen';
 import { CustomersScreen } from '../screens/CustomersScreen';
 import { ProfileScreen } from '../screens/ProfileScreen';
 import { SplashScreen } from '../screens/SplashScreen';
+import { ActivationScreen } from '../screens/ActivationScreen';
 import { PrinterConnectScreen } from '../screens/PrinterConnectScreen';
 import { SecurityBackupScreen } from '../screens/SecurityBackupScreen';
 
@@ -152,6 +153,13 @@ export const AppNavigator = () => {
       <Stack.Screen
         name="Splash"
         component={SplashScreen}
+        options={{ headerShown: false }}
+      />
+
+      {/* Activation Screen */}
+      <Stack.Screen
+        name="Activation"
+        component={ActivationScreen}
         options={{ headerShown: false }}
       />
 

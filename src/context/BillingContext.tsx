@@ -18,7 +18,10 @@ import {
   ensureBluetoothConnected 
 } from '../services/bluetoothPrinterService';
 
+import { APP_CONFIG } from '../config/app_config';
+
 interface BillingContextProps {
+  isDemoMode: boolean;
   dbMode: string;
   organization: Organization;
   products: Product[];
@@ -138,6 +141,10 @@ export const BillingProvider: React.FC<{ children: React.ReactNode }> = ({ child
   };
 
   const updateOrgProfile = async (org: Organization) => {
+    if (APP_CONFIG.IS_DEMO_MODE) {
+      Alert.alert('Demo Version', APP_CONFIG.DEMO_MESSAGES.ORG_LOCKED);
+      throw new Error(APP_CONFIG.DEMO_MESSAGES.ORG_LOCKED);
+    }
     try {
       setIsLoading(true);
       await dbOps.saveOrganization(org);
@@ -148,6 +155,12 @@ export const BillingProvider: React.FC<{ children: React.ReactNode }> = ({ child
   };
 
   const saveProduct = async (prod: Product) => {
+    // If creating a new product in demo mode, check limit
+    const isNew = !prod.id || !products.some((p) => p.id === prod.id);
+    if (APP_CONFIG.IS_DEMO_MODE && isNew && products.length >= APP_CONFIG.DEMO_LIMITS.MAX_PRODUCTS) {
+      Alert.alert('Demo Limit Reached', APP_CONFIG.DEMO_MESSAGES.PRODUCT_LIMIT);
+      throw new Error(APP_CONFIG.DEMO_MESSAGES.PRODUCT_LIMIT);
+    }
     try {
       setIsLoading(true);
       await dbOps.saveProduct(prod);
@@ -170,6 +183,12 @@ export const BillingProvider: React.FC<{ children: React.ReactNode }> = ({ child
   };
 
   const saveCustomer = async (cust: Customer) => {
+    // If creating a new customer in demo mode, check limit
+    const isNew = !cust.id || !customers.some((c) => c.id === cust.id);
+    if (APP_CONFIG.IS_DEMO_MODE && isNew && customers.length >= APP_CONFIG.DEMO_LIMITS.MAX_CUSTOMERS) {
+      Alert.alert('Demo Limit Reached', APP_CONFIG.DEMO_MESSAGES.CUSTOMER_LIMIT);
+      throw new Error(APP_CONFIG.DEMO_MESSAGES.CUSTOMER_LIMIT);
+    }
     try {
       setIsLoading(true);
       await dbOps.saveCustomer(cust);
@@ -192,6 +211,10 @@ export const BillingProvider: React.FC<{ children: React.ReactNode }> = ({ child
   };
 
   const createInvoice = async (invoice: Invoice, items: any[]) => {
+    if (APP_CONFIG.IS_DEMO_MODE && invoices.length >= APP_CONFIG.DEMO_LIMITS.MAX_INVOICES) {
+      Alert.alert('Demo Limit Reached', APP_CONFIG.DEMO_MESSAGES.INVOICE_LIMIT);
+      throw new Error(APP_CONFIG.DEMO_MESSAGES.INVOICE_LIMIT);
+    }
     try {
       setIsLoading(true);
       await dbOps.saveInvoice(invoice, items);
@@ -246,6 +269,10 @@ export const BillingProvider: React.FC<{ children: React.ReactNode }> = ({ child
   };
  
   const exportData = async (): Promise<{ jsonStr: string; filename: string }> => {
+    if (APP_CONFIG.IS_DEMO_MODE) {
+      Alert.alert('Demo Version', APP_CONFIG.DEMO_MESSAGES.EXPORT_IMPORT_DISABLED);
+      throw new Error(APP_CONFIG.DEMO_MESSAGES.EXPORT_IMPORT_DISABLED);
+    }
     try {
       setIsLoading(true);
       return await dbOps.exportDatabaseData();
@@ -255,6 +282,10 @@ export const BillingProvider: React.FC<{ children: React.ReactNode }> = ({ child
   };
 
   const importData = async (jsonStr: string): Promise<void> => {
+    if (APP_CONFIG.IS_DEMO_MODE) {
+      Alert.alert('Demo Version', APP_CONFIG.DEMO_MESSAGES.EXPORT_IMPORT_DISABLED);
+      throw new Error(APP_CONFIG.DEMO_MESSAGES.EXPORT_IMPORT_DISABLED);
+    }
     try {
       setIsLoading(true);
       await dbOps.importDatabaseData(jsonStr);
@@ -290,6 +321,11 @@ export const BillingProvider: React.FC<{ children: React.ReactNode }> = ({ child
   };
 
   const printReceipt = async (text: string, navigation?: any): Promise<boolean> => {
+    if (APP_CONFIG.IS_DEMO_MODE) {
+      Alert.alert('Demo Version', APP_CONFIG.DEMO_MESSAGES.PRINTING_DISABLED);
+      return false;
+    }
+
     if (!connectedPrinter) {
       Alert.alert(
         'No Printer Connected',
@@ -333,6 +369,11 @@ export const BillingProvider: React.FC<{ children: React.ReactNode }> = ({ child
   };
 
   const verifyPrinterConnectionOrRedirect = async (navigation: any): Promise<boolean> => {
+    if (APP_CONFIG.IS_DEMO_MODE) {
+      Alert.alert('Demo Version', APP_CONFIG.DEMO_MESSAGES.PRINTING_DISABLED);
+      return false;
+    }
+
     if (!connectedPrinter) {
       Alert.alert(
         'Printer Needs Configuration',
@@ -377,6 +418,7 @@ export const BillingProvider: React.FC<{ children: React.ReactNode }> = ({ child
   return (
     <BillingContext.Provider
       value={{
+        isDemoMode: APP_CONFIG.IS_DEMO_MODE,
         dbMode,
         organization,
         products,

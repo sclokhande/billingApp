@@ -1,4 +1,4 @@
-package com.billingapp
+package com.parchiwala
 
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice

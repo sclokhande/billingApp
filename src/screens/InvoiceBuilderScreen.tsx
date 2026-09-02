@@ -69,6 +69,7 @@ export const InvoiceBuilderScreen = ({ navigation }: any) => {
     invoices,
     isLoading,
     verifyPrinterConnectionOrRedirect,
+    isDemoMode,
   } = useBilling();
 
   // Selected customer & Items
@@ -454,6 +455,19 @@ export const InvoiceBuilderScreen = ({ navigation }: any) => {
       >
         <View style={{ width: '100%', maxWidth: 700, alignSelf: 'center' }}>
           {/* Top Mode Switcher: New Bill vs All Invoices History */}
+          {isDemoMode && (
+            <Card style={{ backgroundColor: '#FFF3E0', borderColor: '#FFE0B2', marginBottom: 12 }} mode="outlined">
+              <Card.Content style={{ paddingVertical: 8, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                <Text style={{ fontSize: 12, fontWeight: 'bold', color: '#E65100' }}>
+                  Demo Version Mode ({invoices.length}/3 Invoices Used)
+                </Text>
+                <Chip compact style={{ backgroundColor: '#FFE0B2' }} textStyle={{ color: '#E65100', fontSize: 10, fontWeight: 'bold' }}>
+                  DEMO BUILD
+                </Chip>
+              </Card.Content>
+            </Card>
+          )}
+
           <SegmentedButtons
             value={activeTab}
             onValueChange={(val) => setActiveTab(val as 'builder' | 'history')}
