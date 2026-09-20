@@ -20,7 +20,7 @@ export const APP_CONFIG = {
 
   // First-Time Device Activation Configuration
   REQUIRE_ACTIVATION_PIN: true,
-  ACTIVATION_PIN: 'S5M26080690',
+  ACTIVATION_PIN: 'S5M26080688',
   ACTIVATION_STORAGE_KEY: '@parchiwala_app_activated_v1',
 };
 
