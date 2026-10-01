@@ -1,26 +1,30 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { Organization, Product, Customer, Invoice } from '../db/types';
-import { initDB, getDBMode } from '../db/db';
+import { initDB } from '../db/db';
 import * as dbOps from '../db/operations';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Alert } from 'react-native';
+import { Alert, AppState } from 'react-native';
 import { 
   BluetoothDevice, 
   connectBluetoothPrinter, 
   disconnectBluetoothPrinter, 
   printReceiptRaw, 
   setConnectedPrinterState, 
-  isBluetoothEnabled, 
-  isLocationEnabled,
-  enableBluetooth,
-  openLocationSettings,
   checkSystemServices,
   ensureBluetoothConnected 
 } from '../services/bluetoothPrinterService';
+import {
+  evaluatePrinterLockStatus,
+  recordPrinterConnection,
+  unlockWithMasterPassword,
+  getRegisteredPrinter,
+  PrinterLockStatus,
+} from '../utils/printerLockManager';
 
 import { APP_CONFIG } from '../config/app_config';
 
 interface BillingContextProps {
+  isMock: boolean;
   isDemoMode: boolean;
   dbMode: string;
   organization: Organization;
@@ -29,6 +33,7 @@ interface BillingContextProps {
   invoices: dbOps.InvoiceWithCustomerName[];
   isLoading: boolean;
   loadData: () => Promise<void>;
+  resetToMockData: () => Promise<void>;
   updateOrgProfile: (org: Organization) => Promise<void>;
   saveProduct: (prod: Product) => Promise<void>;
   deleteProduct: (id: string) => Promise<void>;
@@ -47,6 +52,11 @@ interface BillingContextProps {
   printReceipt: (text: string, navigation?: any) => Promise<boolean>;
   verifyPrinterConnectionOrRedirect: (navigation: any) => Promise<boolean>;
   checkServicesStatus: () => Promise<{ bluetoothEnabled: boolean; locationEnabled: boolean }>;
+  printerLockStatus: PrinterLockStatus | null;
+  isPrinterLocked: boolean;
+  checkPrinterLock: () => Promise<PrinterLockStatus>;
+  unlockViaMasterPassword: (password: string) => Promise<{ success: boolean; message: string }>;
+  reconnectRegisteredPrinter: () => Promise<{ success: boolean; message: string }>;
 }
 
 const BillingContext = createContext<BillingContextProps | undefined>(undefined);
@@ -59,6 +69,10 @@ export const BillingProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [invoices, setInvoices] = useState<dbOps.InvoiceWithCustomerName[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [connectedPrinter, setConnectedPrinter] = useState<BluetoothDevice | null>(null);
+  const [printerLockStatus, setPrinterLockStatus] = useState<PrinterLockStatus | null>(null);
+  const [isPrinterLocked, setIsPrinterLocked] = useState<boolean>(false);
+
+  const isMock = Boolean(APP_CONFIG.isMock || APP_CONFIG.IS_MOCK);
 
   // Initialize DB and fetch data on mount
   useEffect(() => {
@@ -68,8 +82,17 @@ export const BillingProvider: React.FC<{ children: React.ReactNode }> = ({ child
         const mode = await initDB();
         setDbMode(mode);
         
-        // Seed database (if empty)
-        await dbOps.seedDatabase();
+        // Seed database (if empty or if isMock is enabled)
+        if (isMock) {
+          const mockSeeded = await AsyncStorage.getItem('@parchiwala_mock_seeded');
+          if (mockSeeded !== 'true') {
+            await dbOps.seedMockDatabase(true);
+          } else {
+            await dbOps.seedDatabase();
+          }
+        } else {
+          await dbOps.seedDatabase();
+        }
         
         // Load operational data
         await loadData();
@@ -81,55 +104,92 @@ export const BillingProvider: React.FC<{ children: React.ReactNode }> = ({ child
             const parsed = JSON.parse(savedPrinter);
             setConnectedPrinter(parsed);
             setConnectedPrinterState(parsed); // Sync printer state with service
-
-            // Check system Bluetooth and Location services status for saved printer on app launch
-            const { bluetoothEnabled, locationEnabled } = await checkSystemServices();
-
-            if (!bluetoothEnabled || !locationEnabled) {
-              let missingServicesMsg = '';
-              if (!bluetoothEnabled && !locationEnabled) {
-                missingServicesMsg = 'Bluetooth connection and Location services are currently turned OFF.';
-              } else if (!bluetoothEnabled) {
-                missingServicesMsg = 'Bluetooth connection is currently turned OFF.';
-              } else {
-                missingServicesMsg = 'Location services are currently turned OFF.';
-              }
-
-              Alert.alert(
-                'Printer Service Required',
-                `You have previously configured printer '${parsed.name}'. ${missingServicesMsg}\n\nPlease start this service to connect your printer and print receipts.`,
-                [
-                  { text: 'Cancel', style: 'cancel' },
-                  ...(!bluetoothEnabled ? [{ text: 'Turn On Bluetooth', onPress: () => enableBluetooth() }] : []),
-                  ...(!locationEnabled ? [{ text: 'Location Settings', onPress: () => openLocationSettings() }] : []),
-                ]
-              );
-            } else {
-              // Both services enabled: attempt background socket check
-              const connCheck = await ensureBluetoothConnected(parsed);
-              if (!connCheck.ok) {
-                console.warn('Saved printer offline or not reachable on startup:', parsed.name);
-              }
-            }
           } catch (e) {
             console.warn('Failed to restore saved printer state:', e);
           }
+        }
+
+        // Initialize 48-hour printer security lock status
+        try {
+          const initialLock = await evaluatePrinterLockStatus();
+          setPrinterLockStatus(initialLock);
+          setIsPrinterLocked(initialLock.isLocked);
+        } catch (e) {
+          console.error('[BillingContext] Error evaluating printer lock status on startup:', e);
         }
       } catch (error) {
         console.error('Database startup failure:', error);
       } finally {
         setIsLoading(false);
       }
+
+      // Non-blocking background verification of saved printer (does not block splash screen)
+      try {
+        const savedPrinter = await AsyncStorage.getItem('connected_printer');
+        if (savedPrinter) {
+          setTimeout(async () => {
+            try {
+              const parsed = JSON.parse(savedPrinter);
+              const { bluetoothEnabled } = await checkSystemServices();
+              if (bluetoothEnabled) {
+                await ensureBluetoothConnected(parsed);
+              }
+            } catch {
+              // Silently handle in background
+            }
+          }, 800);
+        }
+      } catch {
+        // Silently handle startup error
+      }
     };
     startup();
+
+    // AppState and interval checks for 48-hour printer security lock
+    const appStateSub = AppState.addEventListener('change', async (nextState) => {
+      if (nextState === 'active') {
+        try {
+          const status = await evaluatePrinterLockStatus();
+          setPrinterLockStatus(status);
+          setIsPrinterLocked(status.isLocked);
+        } catch {
+          // Silently handle background lock evaluation
+        }
+      }
+    });
+
+    const lockInterval = setInterval(async () => {
+      try {
+        const status = await evaluatePrinterLockStatus();
+        setPrinterLockStatus(status);
+        setIsPrinterLocked(status.isLocked);
+      } catch {
+        // Silently handle background lock evaluation
+      }
+    }, 10 * 60 * 1000); // Check every 10 minutes
+
+    return () => {
+      appStateSub.remove();
+      clearInterval(lockInterval);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const loadData = async () => {
     try {
-      const org = await dbOps.getOrganization();
-      const prods = await dbOps.getProducts();
-      const custs = await dbOps.getCustomers();
-      const invs = await dbOps.getInvoices();
+      let org = await dbOps.getOrganization();
+      let prods = await dbOps.getProducts();
+      let custs = await dbOps.getCustomers();
+      let invs = await dbOps.getInvoices();
+
+      // If mock mode is enabled but no products exist, auto-seed mock data
+      if (isMock && prods.length === 0) {
+        await dbOps.seedMockDatabase(true);
+        org = await dbOps.getOrganization();
+        prods = await dbOps.getProducts();
+        custs = await dbOps.getCustomers();
+        invs = await dbOps.getInvoices();
+      }
 
       setOrganization(org);
       setProducts(prods);
@@ -137,6 +197,18 @@ export const BillingProvider: React.FC<{ children: React.ReactNode }> = ({ child
       setInvoices(invs);
     } catch (e) {
       console.error('Error fetching database records:', e);
+    }
+  };
+
+  const resetToMockData = async () => {
+    try {
+      setIsLoading(true);
+      await dbOps.seedMockDatabase(true);
+      await loadData();
+    } catch (e) {
+      console.error('Error resetting to mock data:', e);
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -301,6 +373,10 @@ export const BillingProvider: React.FC<{ children: React.ReactNode }> = ({ child
       if (success) {
         setConnectedPrinter({ ...device, connected: true });
         await AsyncStorage.setItem('connected_printer', JSON.stringify({ ...device, connected: true }));
+        await recordPrinterConnection(device);
+        const lockStatus = await evaluatePrinterLockStatus();
+        setPrinterLockStatus(lockStatus);
+        setIsPrinterLocked(lockStatus.isLocked);
         return true;
       }
       return false;
@@ -361,7 +437,14 @@ export const BillingProvider: React.FC<{ children: React.ReactNode }> = ({ child
       }
 
       // 2. Physical connection confirmed! Send print bytes
-      return await printReceiptRaw(text);
+      const printSuccess = await printReceiptRaw(text);
+      if (printSuccess && connectedPrinter) {
+        await recordPrinterConnection(connectedPrinter);
+        const lockStatus = await evaluatePrinterLockStatus();
+        setPrinterLockStatus(lockStatus);
+        setIsPrinterLocked(lockStatus.isLocked);
+      }
+      return printSuccess;
     } catch (e) {
       console.error('[BillingContext] printReceipt error:', e);
       return false;
@@ -415,9 +498,67 @@ export const BillingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     return true;
   };
 
+  const checkPrinterLock = async (): Promise<PrinterLockStatus> => {
+    const status = await evaluatePrinterLockStatus();
+    setPrinterLockStatus(status);
+    setIsPrinterLocked(status.isLocked);
+    return status;
+  };
+
+  const unlockViaMasterPassword = async (
+    password: string
+  ): Promise<{ success: boolean; message: string }> => {
+    const res = await unlockWithMasterPassword(password);
+    if (res.success) {
+      const status = await evaluatePrinterLockStatus();
+      setPrinterLockStatus(status);
+      setIsPrinterLocked(status.isLocked);
+    }
+    return res;
+  };
+
+  const reconnectRegisteredPrinter = async (): Promise<{ success: boolean; message: string }> => {
+    try {
+      const registered = await getRegisteredPrinter();
+      if (!registered || !registered.address) {
+        return {
+          success: false,
+          message: 'No registered printer found on this device. Please pair your printer first.',
+        };
+      }
+      const device: BluetoothDevice = {
+        name: registered.name,
+        address: registered.address,
+      };
+      const success = await connectBluetoothPrinter(device);
+      if (success) {
+        setConnectedPrinter({ ...device, connected: true });
+        await AsyncStorage.setItem('connected_printer', JSON.stringify({ ...device, connected: true }));
+        await recordPrinterConnection(device);
+        const status = await evaluatePrinterLockStatus();
+        setPrinterLockStatus(status);
+        setIsPrinterLocked(status.isLocked);
+        return {
+          success: true,
+          message: `Connected to ${registered.name}. Terminal unlocked successfully!`,
+        };
+      }
+      return {
+        success: false,
+        message: `Failed to connect to ${registered.name}. Please ensure the printer is turned ON and within Bluetooth range.`,
+      };
+    } catch (e: any) {
+      return {
+        success: false,
+        message: e?.message || 'Error occurred while connecting to registered printer.',
+      };
+    }
+  };
+
   return (
     <BillingContext.Provider
       value={{
+        isMock,
         isDemoMode: APP_CONFIG.IS_DEMO_MODE,
         dbMode,
         organization,
@@ -426,6 +567,7 @@ export const BillingProvider: React.FC<{ children: React.ReactNode }> = ({ child
         invoices,
         isLoading,
         loadData,
+        resetToMockData,
         updateOrgProfile,
         saveProduct,
         deleteProduct,
@@ -444,6 +586,11 @@ export const BillingProvider: React.FC<{ children: React.ReactNode }> = ({ child
         printReceipt,
         verifyPrinterConnectionOrRedirect,
         checkServicesStatus: checkSystemServices,
+        printerLockStatus,
+        isPrinterLocked,
+        checkPrinterLock,
+        unlockViaMasterPassword,
+        reconnectRegisteredPrinter,
       }}
     >
       {children}

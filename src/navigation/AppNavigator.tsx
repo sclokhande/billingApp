@@ -18,6 +18,7 @@ import { SplashScreen } from '../screens/SplashScreen';
 import { ActivationScreen } from '../screens/ActivationScreen';
 import { PrinterConnectScreen } from '../screens/PrinterConnectScreen';
 import { SecurityBackupScreen } from '../screens/SecurityBackupScreen';
+import { PrinterLockScreen } from '../screens/PrinterLockScreen';
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -161,6 +162,13 @@ export const AppNavigator = () => {
         name="Activation"
         component={ActivationScreen}
         options={{ headerShown: false }}
+      />
+
+      {/* 48-Hour Printer Security Lock Screen */}
+      <Stack.Screen
+        name="PrinterLock"
+        component={PrinterLockScreen}
+        options={{ headerShown: false, gestureEnabled: false }}
       />
 
       {/* Main Bottom Tabs */}

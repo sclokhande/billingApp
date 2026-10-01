@@ -4,6 +4,7 @@ import { Text, Card, Button, Divider, ActivityIndicator, useTheme, Portal } from
 import { useBilling } from '../context/BillingContext';
 import { getInvoiceById, getInvoiceItems } from '../db/operations';
 import { InvoiceItem } from '../db/types';
+import { formatInvoiceDateTime } from '../utils/dateUtils';
 
 export const InvoiceDetailScreen = ({ route, navigation }: any) => {
   const { invoiceId } = route.params;
@@ -15,23 +16,23 @@ export const InvoiceDetailScreen = ({ route, navigation }: any) => {
   const [items, setItems] = useState<InvoiceItem[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const fetchDetails = async () => {
+  const fetchDetails = React.useCallback(async () => {
     try {
       setLoading(true);
       const inv = await getInvoiceById(invoiceId);
       const invoiceItems = await getInvoiceItems(invoiceId);
       setInvoice(inv);
       setItems(invoiceItems);
-    } catch (e) {
+    } catch {
       Alert.alert('Error', 'Failed to load invoice details.');
     } finally {
       setLoading(false);
     }
-  };
+  }, [invoiceId]);
 
   useEffect(() => {
     fetchDetails();
-  }, [invoiceId]);
+  }, [fetchDetails]);
 
   const handleDelete = () => {
     Alert.alert(
@@ -46,7 +47,7 @@ export const InvoiceDetailScreen = ({ route, navigation }: any) => {
             try {
               await deleteInvoice(invoiceId);
               navigation.goBack();
-            } catch (e) {
+            } catch {
               Alert.alert('Error', 'Failed to delete invoice.');
             }
           },
@@ -67,7 +68,7 @@ export const InvoiceDetailScreen = ({ route, navigation }: any) => {
             try {
               await updateInvoicePaymentStatus(invoiceId, 'Paid');
               await fetchDetails();
-            } catch (e) {
+            } catch {
               Alert.alert('Error', 'Failed to update payment status.');
             }
           },
@@ -92,13 +93,7 @@ export const InvoiceDetailScreen = ({ route, navigation }: any) => {
     );
   }
 
-  const invoiceDate = new Date(invoice.date).toLocaleDateString(undefined, {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+  const invoiceDate = formatInvoiceDateTime(invoice.date);
 
   return (
     <ScrollView style={[styles.container, { backgroundColor: theme.colors.background }]}>

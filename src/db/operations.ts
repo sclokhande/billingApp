@@ -1,6 +1,9 @@
 import { Organization, Product, Customer, Invoice, InvoiceItem } from './types';
 import { getDBMode, executeQuery, memoryDb, ASYNC_KEYS, executeTransaction, executeSqlInTransaction } from './db';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { isMockEnabled } from '../config/app_config';
+import { getMockFullDataset } from '../mock/mockData';
+import { sortInvoicesLatestFirst } from '../utils/dateUtils';
 
 // Generate UUID fallback
 const generateId = () => Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
@@ -205,9 +208,9 @@ export const getInvoices = async (): Promise<InvoiceWithCustomerName[]> => {
       LEFT JOIN customers ON invoices.customerId = customers.id 
       ORDER BY date DESC
     `);
-    return res.rows;
+    return sortInvoicesLatestFirst(res.rows || []);
   } else {
-    return memoryDb.invoices
+    const list = memoryDb.invoices
       .map((inv) => {
         const cust = memoryDb.customers.find((c) => c.id === inv.customerId);
         return {
@@ -215,8 +218,8 @@ export const getInvoices = async (): Promise<InvoiceWithCustomerName[]> => {
           customerName: cust ? cust.name : 'Unknown Customer',
           customerPhone: cust ? cust.phone : '',
         };
-      })
-      .sort((a, b) => b.date.localeCompare(a.date));
+      });
+    return sortInvoicesLatestFirst(list);
   }
 };
 
@@ -401,12 +404,130 @@ export const deleteInvoice = async (id: string): Promise<void> => {
 };
 
 // ==========================================
-// SEEDING FUNCTION
+// SEEDING FUNCTIONS
 // ==========================================
+
+export const seedMockDatabase = async (force: boolean = false): Promise<void> => {
+  const mode = getDBMode();
+  const mockData = getMockFullDataset();
+
+  console.log('[DB] Seeding rich mock data into database...');
+
+  if (force) {
+    if (mode === 'SQLITE') {
+      try {
+        await executeQuery('DELETE FROM organization');
+        await executeQuery('DELETE FROM products');
+        await executeQuery('DELETE FROM customers');
+        await executeQuery('DELETE FROM invoices');
+        await executeQuery('DELETE FROM invoice_items');
+      } catch (e) {
+        console.error('[DB] Error clearing SQLite tables for mock seeding:', e);
+      }
+    } else {
+      memoryDb.organization = null;
+      memoryDb.products = [];
+      memoryDb.customers = [];
+      memoryDb.invoices = [];
+      memoryDb.invoiceItems = [];
+      await AsyncStorage.removeItem(ASYNC_KEYS.ORGANIZATION);
+      await AsyncStorage.removeItem(ASYNC_KEYS.PRODUCTS);
+      await AsyncStorage.removeItem(ASYNC_KEYS.CUSTOMERS);
+      await AsyncStorage.removeItem(ASYNC_KEYS.INVOICES);
+      await AsyncStorage.removeItem(ASYNC_KEYS.INVOICE_ITEMS);
+    }
+  }
+
+  // 1. Seed Mock Organization Profile
+  await saveOrganization(mockData.organization);
+
+  // 2. Seed Mock Products
+  for (const prod of mockData.products) {
+    await saveProduct(prod);
+  }
+
+  // 3. Seed Mock Customers
+  for (const cust of mockData.customers) {
+    await saveCustomer(cust);
+  }
+
+  // 4. Seed Mock Invoices and Invoice Items
+  if (mode === 'SQLITE') {
+    for (const inv of mockData.invoices) {
+      await executeQuery(
+        `INSERT OR REPLACE INTO invoices (id, invoiceNumber, customerId, date, subtotal, taxTotal, cgstTotal, sgstTotal, discount, grandTotal, paymentStatus, paymentMethod) 
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          inv.id,
+          inv.invoiceNumber,
+          inv.customerId,
+          inv.date,
+          inv.subtotal,
+          inv.taxTotal,
+          inv.cgstTotal,
+          inv.sgstTotal,
+          inv.discount,
+          inv.grandTotal,
+          inv.paymentStatus,
+          inv.paymentMethod,
+        ]
+      );
+    }
+
+    for (const item of mockData.invoiceItems) {
+      await executeQuery(
+        `INSERT OR REPLACE INTO invoice_items (id, invoiceId, productId, name, price, quantity, taxRate, total, unit) 
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          item.id,
+          item.invoiceId,
+          item.productId,
+          item.name,
+          item.price,
+          item.quantity,
+          item.taxRate,
+          item.total,
+          item.unit || 'Pcs',
+        ]
+      );
+    }
+  } else {
+    memoryDb.invoices = mockData.invoices;
+    memoryDb.invoiceItems = mockData.invoiceItems;
+    await AsyncStorage.setItem(ASYNC_KEYS.INVOICES, JSON.stringify(mockData.invoices));
+    await AsyncStorage.setItem(ASYNC_KEYS.INVOICE_ITEMS, JSON.stringify(mockData.invoiceItems));
+  }
+
+  await AsyncStorage.setItem('@parchiwala_mock_seeded', 'true');
+  console.log('[DB] Mock data seeded successfully! 12 products, 5 customers, 6 invoices.');
+};
+
 export const seedDatabase = async (force: boolean = false): Promise<void> => {
   const mode = getDBMode();
   
-  // Checking if seeding is required
+  // If Mock Mode is enabled, route to seedMockDatabase
+  if (isMockEnabled()) {
+    const isAlreadySeeded = await AsyncStorage.getItem('@parchiwala_mock_seeded');
+    if (!isAlreadySeeded || force) {
+      await seedMockDatabase(force);
+      return;
+    }
+
+    // Double-check if products exist in table
+    if (mode === 'SQLITE') {
+      const prodCheck = await executeQuery('SELECT COUNT(*) as count FROM products');
+      if (!prodCheck.rows || prodCheck.rows.length === 0 || prodCheck.rows[0]?.count === 0) {
+        await seedMockDatabase(true);
+        return;
+      }
+    } else if (memoryDb.products.length === 0) {
+      await seedMockDatabase(true);
+      return;
+    }
+    return;
+  }
+
+  // Checking if seeding is required for standard blank profile
   let shouldSeed = force;
   if (!shouldSeed) {
     if (mode === 'SQLITE') {

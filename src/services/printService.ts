@@ -1,4 +1,5 @@
 import { Organization, Customer, Invoice, InvoiceItem } from '../db/types';
+import { formatInvoiceDateTime } from '../utils/dateUtils';
 
 const LINE_WIDTH = 32; // 32 characters per line for standard 58mm printers
 
@@ -44,7 +45,7 @@ export const wrapText = (text: string, width: number = LINE_WIDTH): string[] => 
   return lines;
 };
 
-const getCompactUnit = (unit: string): string => {
+export const getCompactUnit = (unit: string): string => {
   const u = (unit || '').toLowerCase();
   if (u === 'pcs') return ' pc';
   if (u === 'nos' || u === 'no' || u === 'numbers' || u === 'number') return ' no';
@@ -196,11 +197,9 @@ export const formatThermalReceipt = (
   // 2. Invoice Meta Info
   lines.push(`Bill No: ${invoice?.invoiceNumber || ''}`);
   
-  // Format Date (simple readable format)
-  const billDate = invoice?.date ? new Date(invoice.date) : new Date();
-  const dateStr = billDate.toLocaleDateString();
-  const timeStr = billDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  lines.push(`Date: ${dateStr} ${timeStr}`);
+  // Format Date (clean readable format)
+  const dateStr = formatInvoiceDateTime(invoice?.date);
+  lines.push(`Date: ${dateStr}`);
   
   if (customer) {
     lines.push(`Cust: ${customer.name || 'Walk-in'}`);

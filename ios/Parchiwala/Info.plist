@@ -39,6 +39,10 @@
 	<string>Parchiwala needs Bluetooth access to discover and print to thermal receipt printers.</string>
 	<key>NSBluetoothPeripheralUsageDescription</key>
 	<string>Parchiwala needs Bluetooth access to connect to thermal receipt printers.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Parchiwala needs microphone access to listen to voice billing commands.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Parchiwala needs speech recognition to transcribe your voice billing queries.</string>
 	<key>RCTNewArchEnabled</key>
 	<true/>
 	<key>UIAppFonts</key>

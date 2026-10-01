@@ -23,6 +23,7 @@ import {
 import { useBilling } from '../context/BillingContext';
 import { Invoice, InvoiceItem, Customer, Product } from '../db/types';
 import { generateInvoicesPdfReport, shareInvoicesPdfReport } from '../services/pdfReportService';
+import { parseInvoiceDate, isToday, formatInvoiceDateTime, sortInvoicesLatestFirst } from '../utils/dateUtils';
 
 const getDeltaForUnit = (unitName: string, isDecrement: boolean) => {
   const u = (unitName || '').toLowerCase();
@@ -112,58 +113,59 @@ export const InvoiceBuilderScreen = ({ navigation }: any) => {
 
   const hasActiveFilters = historyDateFilter !== 'all' || historyStatusFilter !== 'all';
 
-  // Filtered invoices logic
-  const filteredInvoices = invoices.filter((inv) => {
-    // 1. Search Query Filter (Invoice Number, Customer Name, Mobile Number)
-    const q = historySearch.toLowerCase().trim();
-    if (q) {
-      const matchNum = (inv.invoiceNumber || '').toLowerCase().includes(q);
-      const matchCust = (inv.customerName || '').toLowerCase().includes(q);
-      const custObj = customers.find((c) => c.id === inv.customerId);
-      const matchPhone = (custObj?.phone || '').includes(q);
-      if (!matchNum && !matchCust && !matchPhone) {
-        return false;
+  // Filtered invoices logic - strictly sorted latest first
+  const filteredInvoices = React.useMemo(() => {
+    const list = invoices.filter((inv) => {
+      // 1. Search Query Filter (Invoice Number, Customer Name, Mobile Number)
+      const q = historySearch.toLowerCase().trim();
+      if (q) {
+        const matchNum = (inv.invoiceNumber || '').toLowerCase().includes(q);
+        const matchCust = (inv.customerName || '').toLowerCase().includes(q);
+        const custObj = customers.find((c) => c.id === inv.customerId);
+        const matchPhone = (custObj?.phone || '').includes(q);
+        if (!matchNum && !matchCust && !matchPhone) {
+          return false;
+        }
       }
-    }
 
-    // 2. Date Filter
-    if (historyDateFilter !== 'all') {
-      const invDate = new Date(inv.date);
-      const today = new Date();
-      if (historyDateFilter === 'today') {
-        const isSameDay =
-          invDate.getFullYear() === today.getFullYear() &&
-          invDate.getMonth() === today.getMonth() &&
-          invDate.getDate() === today.getDate();
-        if (!isSameDay) return false;
-      } else if (historyDateFilter === 'week') {
-        const sevenDaysAgo = new Date();
-        sevenDaysAgo.setDate(today.getDate() - 7);
-        if (invDate < sevenDaysAgo) return false;
-      } else if (historyDateFilter === 'month') {
-        const isSameMonth =
-          invDate.getFullYear() === today.getFullYear() &&
-          invDate.getMonth() === today.getMonth();
-        if (!isSameMonth) return false;
+      // 2. Date Filter
+      if (historyDateFilter !== 'all') {
+        const invDate = parseInvoiceDate(inv.date);
+        const today = new Date();
+        if (historyDateFilter === 'today') {
+          if (!isToday(inv.date)) return false;
+        } else if (historyDateFilter === 'week') {
+          const sevenDaysAgo = new Date();
+          sevenDaysAgo.setDate(today.getDate() - 7);
+          sevenDaysAgo.setHours(0, 0, 0, 0);
+          if (invDate < sevenDaysAgo) return false;
+        } else if (historyDateFilter === 'month') {
+          const isSameMonth =
+            invDate.getFullYear() === today.getFullYear() &&
+            invDate.getMonth() === today.getMonth();
+          if (!isSameMonth) return false;
+        }
       }
-    }
 
-    // 3. Customer Filter
-    if (historyCustomerFilter !== 'all') {
-      if (inv.customerId !== historyCustomerFilter) {
-        return false;
+      // 3. Customer Filter
+      if (historyCustomerFilter !== 'all') {
+        if (inv.customerId !== historyCustomerFilter) {
+          return false;
+        }
       }
-    }
 
-    // 4. Payment Status Filter
-    if (historyStatusFilter !== 'all') {
-      if (inv.paymentStatus !== historyStatusFilter) {
-        return false;
+      // 4. Payment Status Filter
+      if (historyStatusFilter !== 'all') {
+        if (inv.paymentStatus !== historyStatusFilter) {
+          return false;
+        }
       }
-    }
 
-    return true;
-  });
+      return true;
+    });
+
+    return sortInvoicesLatestFirst(list);
+  }, [invoices, historySearch, customers, historyDateFilter, historyCustomerFilter, historyStatusFilter]);
 
   const filteredTotalRevenue = filteredInvoices.reduce((sum, inv) => sum + inv.grandTotal, 0);
 
@@ -568,13 +570,7 @@ export const InvoiceBuilderScreen = ({ navigation }: any) => {
               ) : (
                 filteredInvoices.map((inv) => {
                   const isPaid = inv.paymentStatus === 'Paid';
-                  const dateStr = new Date(inv.date).toLocaleDateString(undefined, {
-                    year: 'numeric',
-                    month: 'short',
-                    day: 'numeric',
-                    hour: '2-digit',
-                    minute: '2-digit',
-                  });
+                  const dateStr = formatInvoiceDateTime(inv.date);
 
                   return (
                     <Card

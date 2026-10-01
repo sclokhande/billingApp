@@ -1563,6 +1563,8 @@ PODS:
     - Yoga
   - react-native-sqlite-storage (6.0.1):
     - React-Core
+  - react-native-voice (3.2.4):
+    - React-Core
   - React-NativeModulesApple (0.86.0):
     - hermes-engine
     - React-callinvoker
@@ -2101,6 +2103,7 @@ DEPENDENCIES:
   - "react-native-document-picker (from `../node_modules/@react-native-documents/picker`)"
   - react-native-safe-area-context (from `../node_modules/react-native-safe-area-context`)
   - react-native-sqlite-storage (from `../node_modules/react-native-sqlite-storage`)
+  - "react-native-voice (from `../node_modules/@react-native-voice/voice`)"
   - React-NativeModulesApple (from `../node_modules/react-native/ReactCommon/react/nativemodule/core/platform/ios`)
   - React-networking (from `../node_modules/react-native/ReactCommon/react/networking`)
   - React-oscompat (from `../node_modules/react-native/ReactCommon/oscompat`)
@@ -2232,6 +2235,8 @@ EXTERNAL SOURCES:
     :path: "../node_modules/react-native-safe-area-context"
   react-native-sqlite-storage:
     :path: "../node_modules/react-native-sqlite-storage"
+  react-native-voice:
+    :path: "../node_modules/@react-native-voice/voice"
   React-NativeModulesApple:
     :path: "../node_modules/react-native/ReactCommon/react/nativemodule/core/platform/ios"
   React-networking:
@@ -2358,6 +2363,7 @@ SPEC CHECKSUMS:
   react-native-document-picker: 1bf3e97a53c205191d34bc3a9bbcb57fbe1c77d5
   react-native-safe-area-context: c1eb308f4b36372a4de4b3bdaa8ed695ec3dd461
   react-native-sqlite-storage: f6d515e1c446d1e6d026aa5352908a25d4de3261
+  react-native-voice: f5e8eec2278451d0017eb6a30a6ccc726aca34e0
   React-NativeModulesApple: a4713821c9caae40ae33eef933a6e692a6f4a81d
   React-networking: b344a1a41a4729ef859123b7a234f3092761cb25
   React-oscompat: 0b72a7e926954a0415ccd83e0748b6561fe45367
