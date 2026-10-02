@@ -44,6 +44,7 @@ interface BillingContextProps {
   clearAllData: () => Promise<void>;
   clearInvoicesOnly: () => Promise<void>;
   updateInvoicePaymentStatus: (id: string, status: 'Paid' | 'Unpaid') => Promise<void>;
+  getAllInvoiceItems: () => Promise<any[]>;
   exportData: () => Promise<{ jsonStr: string; filename: string }>;
   importData: (jsonStr: string) => Promise<void>;
   connectedPrinter: BluetoothDevice | null;
@@ -339,6 +340,10 @@ export const BillingProvider: React.FC<{ children: React.ReactNode }> = ({ child
       setIsLoading(false);
     }
   };
+
+  const getAllInvoiceItems = async (): Promise<any[]> => {
+    return await dbOps.getAllInvoiceItems();
+  };
  
   const exportData = async (): Promise<{ jsonStr: string; filename: string }> => {
     if (APP_CONFIG.IS_DEMO_MODE) {
@@ -578,6 +583,7 @@ export const BillingProvider: React.FC<{ children: React.ReactNode }> = ({ child
         clearAllData,
         clearInvoicesOnly,
         updateInvoicePaymentStatus,
+        getAllInvoiceItems,
         exportData,
         importData,
         connectedPrinter,

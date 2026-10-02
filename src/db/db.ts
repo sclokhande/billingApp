@@ -71,7 +71,9 @@ export const initDB = async (): Promise<string> => {
             currency TEXT,
             slogan TEXT,
             printWidth TEXT,
-            securityPin TEXT
+            securityPin TEXT,
+            showFooterTextOnBill INTEGER DEFAULT 1,
+            footerText TEXT
           );
         `);
         try {
@@ -137,6 +139,12 @@ export const initDB = async (): Promise<string> => {
         } catch (_) {}
         try {
           await dbInstance.executeSql('ALTER TABLE organization ADD COLUMN printWidth TEXT;');
+        } catch (_) {}
+        try {
+          await dbInstance.executeSql('ALTER TABLE organization ADD COLUMN showFooterTextOnBill INTEGER DEFAULT 1;');
+        } catch (_) {}
+        try {
+          await dbInstance.executeSql('ALTER TABLE organization ADD COLUMN footerText TEXT;');
         } catch (_) {}
         try {
           await dbInstance.executeSql('ALTER TABLE products ADD COLUMN stockQuantity REAL DEFAULT 0;');

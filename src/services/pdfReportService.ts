@@ -26,6 +26,12 @@ export const generateInvoicesPdfReport = async (
   const unpaidInvoices = invoices.filter((i) => i.paymentStatus === 'Unpaid');
   const paidAmount = paidInvoices.reduce((sum, inv) => sum + inv.grandTotal, 0);
   const unpaidAmount = unpaidInvoices.reduce((sum, inv) => sum + inv.grandTotal, 0);
+  const totalTaxAmount = invoices.reduce((sum, inv) => {
+    const tax = typeof inv.taxTotal === 'number' ? inv.taxTotal : parseFloat(inv.taxTotal as any) || 0;
+    const cgst = typeof inv.cgstTotal === 'number' ? inv.cgstTotal : parseFloat(inv.cgstTotal as any) || 0;
+    const sgst = typeof inv.sgstTotal === 'number' ? inv.sgstTotal : parseFloat(inv.sgstTotal as any) || 0;
+    return sum + (tax > 0 ? tax : (cgst + sgst));
+  }, 0);
 
   let contentHtml = '';
 
@@ -99,6 +105,11 @@ export const generateInvoicesPdfReport = async (
           <td style="padding: 10px 12px; border-bottom: 1px solid #e0e0e0; font-weight: bold; color: ${inv.paymentStatus === 'Paid' ? '#2E7D32' : '#C62828'};">
             ${inv.paymentStatus.toUpperCase()}
           </td>
+          ${totalTaxAmount > 0 ? `
+          <td style="padding: 10px 12px; border-bottom: 1px solid #e0e0e0; text-align: right; color: #7B1FA2; font-weight: 500;">
+            ${organization.currency || 'Rs.'} ${(inv.taxTotal || (inv.cgstTotal || 0) + (inv.sgstTotal || 0)).toFixed(2)}
+          </td>
+          ` : ''}
           <td style="padding: 10px 12px; border-bottom: 1px solid #e0e0e0; text-align: right; font-weight: bold; color: #111111;">
             ${organization.currency || 'Rs.'} ${inv.grandTotal.toFixed(2)}
           </td>
@@ -115,6 +126,7 @@ export const generateInvoicesPdfReport = async (
             <th>Date</th>
             <th>Customer</th>
             <th>Status</th>
+            ${totalTaxAmount > 0 ? '<th class="right">GST Tax</th>' : ''}
             <th class="right">Grand Total</th>
           </tr>
         </thead>
@@ -236,19 +248,25 @@ export const generateInvoicesPdfReport = async (
 
         <table class="summary-table">
           <tr>
-            <td class="summary-box" style="width: 25%;">
+            <td class="summary-box" style="width: ${totalTaxAmount > 0 ? '20%' : '25%'};">
               <div class="summary-label">Total Invoices</div>
               <div class="summary-val" style="color: #222222;">${totalInvoices}</div>
             </td>
-            <td class="summary-box" style="width: 25%;">
+            <td class="summary-box" style="width: ${totalTaxAmount > 0 ? '20%' : '25%'};">
               <div class="summary-label">Total Sales</div>
               <div class="summary-val" style="color: #1976D2;">${organization.currency || 'Rs.'} ${totalAmount.toFixed(2)}</div>
             </td>
-            <td class="summary-box" style="width: 25%;">
+            ${totalTaxAmount > 0 ? `
+            <td class="summary-box" style="width: 20%;">
+              <div class="summary-label">Total GST</div>
+              <div class="summary-val" style="color: #7B1FA2;">${organization.currency || 'Rs.'} ${totalTaxAmount.toFixed(2)}</div>
+            </td>
+            ` : ''}
+            <td class="summary-box" style="width: ${totalTaxAmount > 0 ? '20%' : '25%'};">
               <div class="summary-label">Paid (${paidInvoices.length})</div>
               <div class="summary-val" style="color: #2E7D32;">${organization.currency || 'Rs.'} ${paidAmount.toFixed(2)}</div>
             </td>
-            <td class="summary-box" style="width: 25%;">
+            <td class="summary-box" style="width: ${totalTaxAmount > 0 ? '20%' : '25%'};">
               <div class="summary-label">Unpaid (${unpaidInvoices.length})</div>
               <div class="summary-val" style="color: #C62828;">${organization.currency || 'Rs.'} ${unpaidAmount.toFixed(2)}</div>
             </td>

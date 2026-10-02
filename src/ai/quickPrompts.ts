@@ -3,15 +3,9 @@ import { SuggestedPrompt } from './types';
 export const QUICK_PROMPTS: SuggestedPrompt[] = [
   {
     id: 'p0',
-    title: 'Fast Cash Bill',
-    query: 'Create cash bill for 1 kg apple',
+    title: 'Cash Bill',
+    query: 'cash bill',
     icon: 'cart-plus',
-  },
-  {
-    id: 'p1',
-    title: 'Udhar / Credit Bill',
-    query: 'Bhaiya 1 kg apple kar do udhar par',
-    icon: 'book-clock-outline',
   },
   {
     id: 'p2',
@@ -42,20 +36,14 @@ export const QUICK_PROMPTS: SuggestedPrompt[] = [
 export const MERCHANT_BILLING_PROMPTS: SuggestedPrompt[] = [
   {
     id: 'mb_cash',
-    title: 'Fast Cash Bill',
-    query: 'Create cash bill for 1 kg apple',
+    title: 'Cash Bill',
+    query: 'cash bill',
     icon: 'cash',
-  },
-  {
-    id: 'mb_udhar',
-    title: 'Udhar / Credit Bill',
-    query: 'Bhaiya Ramesh ke naam pe 1 kg apple udhar par likh do',
-    icon: 'book-clock-outline',
   },
   {
     id: 'mb_marathi',
     title: 'मराठी पावती',
-    query: 'Bhau 1 kg apple karun dya udhari var',
+    query: 'Bhau 1 kg apple karun dya',
     icon: 'translate',
   },
   {

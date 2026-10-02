@@ -1,6 +1,22 @@
 import { checkDomainGuardrail } from './domainGuardrail';
-import { matchIntent, PRODUCT_SYNONYMS } from './intentMatcher';
-import { AgentResponse, AgentAction } from './types';
+import {
+  matchIntent,
+  PRODUCT_SYNONYMS,
+  isAffirmative,
+  isNegativeOrDone,
+  isCancelCommand,
+  isProceedForBill,
+  isAddProductCommand,
+  parseDiscount,
+  parseOrderItems,
+} from './intentMatcher';
+import {
+  AgentResponse,
+  AgentAction,
+  ActiveOrderSession,
+  DraftOrderItem,
+  DraftOrderData,
+} from './types';
 import { Product, Customer, Organization } from '../db/types';
 import { InvoiceWithCustomerName } from '../db/operations';
 
@@ -12,7 +28,24 @@ export interface DispatchContext {
   connectedPrinter: any | null;
   onNavigate?: (screenName: string, params?: any) => void;
   onPrintInvoice?: (invoiceId: string) => Promise<boolean>;
+  orderSession?: ActiveOrderSession | null;
 }
+
+// Helper for unit conversion
+export const getConvertedPrice = (
+  basePrice: number,
+  baseUnit: string,
+  targetUnit: string
+): number => {
+  const bu = (baseUnit || 'Pcs').toLowerCase();
+  const tu = (targetUnit || 'Pcs').toLowerCase();
+  if (bu === tu) return basePrice;
+  if (bu === 'kg' && tu === 'gm') return basePrice / 1000;
+  if (bu === 'gm' && tu === 'kg') return basePrice * 1000;
+  if ((bu === 'ltr' || bu === 'litre') && tu === 'ml') return basePrice / 1000;
+  if (bu === 'ml' && (tu === 'ltr' || tu === 'litre')) return basePrice * 1000;
+  return basePrice;
+};
 
 // Date helpers
 const isToday = (dateStr: string): boolean => {
@@ -59,6 +92,668 @@ export const dispatchAgentQuery = async (
 ): Promise<AgentResponse> => {
   const { invoices, products, customers, organization, connectedPrinter } = context;
   const currency = organization.currency || '₹';
+
+  // 0. Active Conversational Order Session State Machine
+  if (context.orderSession) {
+    const session = context.orderSession;
+
+    // A. Check for Cancel Command
+    if (isCancelCommand(rawQuery)) {
+      return {
+        text: '❌ **Order cancelled.** Your current order draft has been discarded.\n\nHow else can I help you?',
+        suggestedFollowUps: ['Create an order', "Today's sales", 'Low stock alert'],
+        orderSession: null,
+      };
+    }
+
+    // B. State: AWAITING_PRODUCT
+    if (session.step === 'AWAITING_PRODUCT') {
+      // 1. If user explicitly asks to add product or tapped "+ Add Product"
+      if (isAddProductCommand(rawQuery)) {
+        const parsed = parseOrderItems(rawQuery);
+        if (parsed.items.length === 0) {
+          const hasCartItems = session.items.length > 0;
+          const currentSub = session.items.reduce((sum, it) => sum + it.price * it.quantity, 0);
+          return {
+            text:
+              `Sure! Which product would you like to add?\n` +
+              `Pick an item below or type (e.g. *"Apple 1.5 kg"* or *"Chikoo 1 kg"*):` +
+              (hasCartItems ? `\n*(Current Cart: ${session.items.length} items — ${currency}${currentSub.toFixed(2)})*` : ''),
+            suggestedFollowUps: hasCartItems
+              ? [
+                  'Generate Bill',
+                  'Proceed for Bill',
+                  ...products
+                    .filter((p) => !session.items.some((i) => i.productId === p.id))
+                    .slice(0, 3)
+                    .map((p) => `1 ${p.unit || 'pcs'} ${p.name}`),
+                ]
+              : products.slice(0, 4).map((p) => `1 ${p.unit || 'pcs'} ${p.name}`),
+            orderSession: session,
+          };
+        }
+      }
+
+      // 2. If user does not want to add product and wants to proceed to bill instead
+      if (isProceedForBill(rawQuery) || isNegativeOrDone(rawQuery)) {
+        if (session.items.length > 0) {
+          const currentSubtotal = session.items.reduce((sum, it) => sum + it.price * it.quantity, 0);
+          return {
+            text:
+              `Great! Cart total is **${currency}${currentSubtotal.toFixed(2)}** (${session.items.length} item${session.items.length > 1 ? 's' : ''}).\n\n` +
+              `Can we proceed to generate the bill, or would you like to add any discount? (e.g. 5%, 10%, or No Discount)`,
+            suggestedFollowUps: ['Generate Bill', 'Proceed for Bill', '+ Add Product', 'No Discount', '10% Discount', '5% Discount'],
+            orderSession: {
+              ...session,
+              step: 'AWAITING_DISCOUNT',
+            },
+          };
+        } else {
+          return {
+            text:
+              `⚠️ Your cart is currently empty. Please add at least one product before generating a bill.\n\n` +
+              `Would you like to **Add a Product** or **Cancel the Order**?`,
+            suggestedFollowUps: [
+              '+ Add Product',
+              ...products.slice(0, 3).map((p) => `1 ${p.unit || 'pcs'} ${p.name}`),
+              'Cancel Order',
+            ],
+            orderSession: session,
+          };
+        }
+      }
+
+      const parsed = parseOrderItems(rawQuery);
+      const parsedItems = parsed.items;
+
+      if (parsedItems.length === 0) {
+        const rawTrimmed = rawQuery.trim().toLowerCase();
+        const cleaned = rawTrimmed
+          .replace(/^(?:add|select|choose|pick|want|item|product|\+)\s+/i, '')
+          .replace(/^\d+(?:\.\d+)?\s*(?:kg|gm|pcs|ltr|pkt|box|meter)?\s+/i, '')
+          .trim();
+
+        const matched = products.find((p) => {
+          const pLow = p.name.toLowerCase();
+          const pClean = pLow.replace(/\(.*?\)/g, '').trim();
+          return (
+            pLow === rawTrimmed ||
+            pLow === cleaned ||
+            rawTrimmed.includes(pLow) ||
+            pLow.includes(rawTrimmed) ||
+            (cleaned.length >= 2 &&
+              (pLow.includes(cleaned) ||
+                cleaned.includes(pLow) ||
+                pClean.includes(cleaned) ||
+                cleaned.includes(pClean)))
+          );
+        });
+
+        if (matched) {
+          const qtyMatch = rawQuery.match(/^.*?(\d+(?:\.\d+)?)\s*(kg|gm|pcs|ltr|pkt|box|meter)?/i);
+          const qty = qtyMatch ? parseFloat(qtyMatch[1]) : 1;
+          const u = qtyMatch && qtyMatch[2] ? qtyMatch[2] : (matched.unit || 'Pcs');
+
+          parsedItems.push({
+            productName: matched.name,
+            quantity: qty,
+            unit: u,
+            synonyms: [matched.name, cleaned],
+          });
+        }
+      }
+
+      if (parsedItems.length > 0) {
+        const addedItems: DraftOrderItem[] = [];
+        const notFound: string[] = [];
+
+        for (const item of parsedItems) {
+          const searchTerms = [item.productName, ...(item.synonyms || [])].map((t) => t.toLowerCase());
+          const matchedProduct = products.find((p) => {
+            const pName = p.name.toLowerCase();
+            const pClean = pName.replace(/\(.*?\)/g, '').trim();
+            return searchTerms.some(
+              (st) =>
+                pName === st ||
+                pName.includes(st) ||
+                st.includes(pName) ||
+                pClean === st ||
+                pClean.includes(st) ||
+                st.includes(pClean)
+            );
+          });
+
+          if (matchedProduct) {
+            const itemUnit = item.unit || matchedProduct.unit || 'Pcs';
+            const basePrice = item.price || matchedProduct.price;
+            const unitPrice = getConvertedPrice(basePrice, matchedProduct.unit, itemUnit);
+            const itemTaxRate =
+              organization.showGstOnBill && organization.gstNumber ? matchedProduct.taxRate || 0 : 0;
+            const itemSubtotal = unitPrice * item.quantity;
+            const itemTotal = itemSubtotal;
+
+            addedItems.push({
+              productId: matchedProduct.id,
+              name: matchedProduct.name,
+              price: unitPrice,
+              quantity: item.quantity,
+              unit: itemUnit,
+              taxRate: itemTaxRate,
+              total: itemTotal,
+            });
+          } else if (item.price && item.price > 0) {
+            const itemUnit = item.unit || 'Pcs';
+            const unitPrice = item.price;
+            addedItems.push({
+              productId: 'custom_' + Math.random().toString(36).substring(2, 9),
+              name: item.productName.charAt(0).toUpperCase() + item.productName.slice(1),
+              price: unitPrice,
+              quantity: item.quantity,
+              unit: itemUnit,
+              taxRate: 0,
+              total: unitPrice * item.quantity,
+            });
+          } else {
+            notFound.push(item.productName);
+          }
+        }
+
+        if (addedItems.length > 0) {
+          const updatedItems = [...session.items, ...addedItems];
+          const currentSubtotal = updatedItems.reduce((sum, it) => sum + it.price * it.quantity, 0);
+          const firstAdded = addedItems[0];
+          const itemsSummary = updatedItems
+            .map(
+              (it, idx) =>
+                `${idx + 1}. **${it.name}** — ${it.quantity} ${it.unit} (${currency}${it.total.toFixed(2)})`
+            )
+            .join('\n');
+
+          return {
+            text:
+              `✅ Added **${firstAdded.name}** — ${firstAdded.quantity} ${firstAdded.unit} (${currency}${firstAdded.total.toFixed(2)}).\n\n` +
+              `**Current Cart (${updatedItems.length} item${updatedItems.length > 1 ? 's' : ''}):**\n${itemsSummary}\n\n` +
+              `• **Cart Total**: **${currency}${currentSubtotal.toFixed(2)}**\n\n` +
+              `Do you want to add more products? (Yes / No)\n` +
+              `Would you like to **Add another Product** or **Generate Bill**?`,
+            actions: [
+              {
+                id: 'act_proceed_bill',
+                label: `Generate Bill (${currency}${currentSubtotal.toFixed(2)})`,
+                type: 'PROCEED_FOR_BILL',
+                icon: 'receipt',
+              },
+              {
+                id: 'act_add_more',
+                label: '+ Add More Products',
+                type: 'ADD_PRODUCT',
+                icon: 'plus-circle-outline',
+              },
+            ],
+            suggestedFollowUps: [
+              'Generate Bill',
+              '+ Add Product',
+              ...products
+                .filter((p) => !updatedItems.some((i) => i.productId === p.id))
+                .slice(0, 2)
+                .map((p) => `Add ${p.name}`),
+            ],
+            orderSession: {
+              ...session,
+              items: updatedItems,
+              step: 'AWAITING_MORE_PRODUCTS',
+            },
+          };
+        } else if (notFound.length > 0) {
+          return {
+            text:
+              `⚠️ Could not find **"${notFound.join(', ')}"** in your inventory.\n\n` +
+              `You can specify the price (e.g. *"1 kg ${notFound[0]} at 120"*) or pick an existing product below:`,
+            suggestedFollowUps: products.slice(0, 3).map((p) => `1 ${p.unit || 'pcs'} ${p.name}`),
+            orderSession: session,
+          };
+        }
+      }
+
+      const hasCartItems = session.items.length > 0;
+      const currentSub = session.items.reduce((sum, it) => sum + it.price * it.quantity, 0);
+
+      return {
+        text: hasCartItems
+          ? `Please tell me which product to add, or tap **'Generate Bill'** to checkout (${session.items.length} item${session.items.length > 1 ? 's' : ''} — ${currency}${currentSub.toFixed(2)}):`
+          : `Please tell me which product and quantity to add (e.g. *"Apple 1.5 kg"* or *"Chikoo 1 kg"*):`,
+        suggestedFollowUps: hasCartItems
+          ? ['Generate Bill', '+ Add Product', ...products.slice(0, 3).map((p) => `1 ${p.unit || 'pcs'} ${p.name}`)]
+          : ['+ Add Product', ...products.slice(0, 3).map((p) => `1 ${p.unit || 'pcs'} ${p.name}`)],
+        orderSession: session,
+      };
+    }
+
+    // C. State: AWAITING_MORE_PRODUCTS
+    if (session.step === 'AWAITING_MORE_PRODUCTS') {
+      if (isAddProductCommand(rawQuery) || isAffirmative(rawQuery)) {
+        const sub = session.items.reduce((sum, it) => sum + it.price * it.quantity, 0);
+        return {
+          text:
+            `Sure! Which product would you like to add next?\n` +
+            `Pick an item below, type (e.g. *"Chikoo 1 kg"*), or say **'Generate Bill'** if done:\n` +
+            `*(Current Cart: ${session.items.length} item${session.items.length > 1 ? 's' : ''} — ${currency}${sub.toFixed(2)})*`,
+          suggestedFollowUps: [
+            'Generate Bill',
+            '+ Add Product',
+            ...products
+              .filter((p) => !session.items.some((i) => i.productId === p.id))
+              .slice(0, 3)
+              .map((p) => `1 ${p.unit || 'pcs'} ${p.name}`),
+          ],
+          orderSession: {
+            ...session,
+            step: 'AWAITING_PRODUCT',
+          },
+        };
+      }
+
+      if (isNegativeOrDone(rawQuery) || isProceedForBill(rawQuery)) {
+        const currentSubtotal = session.items.reduce((sum, it) => sum + it.price * it.quantity, 0);
+        return {
+          text:
+            `Great! Cart total is **${currency}${currentSubtotal.toFixed(2)}** (${session.items.length} item${session.items.length > 1 ? 's' : ''}).\n\n` +
+            `Can we proceed to generate the bill, or would you like to add any discount? (e.g. 5%, 10%, or No Discount)`,
+          suggestedFollowUps: ['Generate Bill', 'Proceed for Bill', '+ Add Product', 'No Discount', '10% Discount', '5% Discount'],
+          orderSession: {
+            ...session,
+            step: 'AWAITING_DISCOUNT',
+          },
+        };
+      }
+
+      // Check if user directly provided another product (e.g. "chiuku 1kg" or clicked chip)
+      const parsed = parseOrderItems(rawQuery);
+      const parsedItems = [...parsed.items];
+
+      if (parsedItems.length === 0) {
+        const rawTrimmed = rawQuery.trim().toLowerCase();
+        const cleaned = rawTrimmed
+          .replace(/^(?:add|select|choose|pick|want|item|product|\+)\s+/i, '')
+          .replace(/^\d+(?:\.\d+)?\s*(?:kg|gm|pcs|ltr|pkt|box|meter)?\s+/i, '')
+          .trim();
+
+        const matched = products.find((p) => {
+          const pLow = p.name.toLowerCase();
+          const pClean = pLow.replace(/\(.*?\)/g, '').trim();
+          return (
+            pLow === rawTrimmed ||
+            pLow === cleaned ||
+            rawTrimmed.includes(pLow) ||
+            pLow.includes(rawTrimmed) ||
+            (cleaned.length >= 2 &&
+              (pLow.includes(cleaned) ||
+                cleaned.includes(pLow) ||
+                pClean.includes(cleaned) ||
+                cleaned.includes(pClean)))
+          );
+        });
+
+        if (matched) {
+          const qtyMatch = rawQuery.match(/^.*?(\d+(?:\.\d+)?)\s*(kg|gm|pcs|ltr|pkt|box|meter)?/i);
+          const qty = qtyMatch ? parseFloat(qtyMatch[1]) : 1;
+          const u = qtyMatch && qtyMatch[2] ? qtyMatch[2] : (matched.unit || 'Pcs');
+
+          parsedItems.push({
+            productName: matched.name,
+            quantity: qty,
+            unit: u,
+            synonyms: [matched.name, cleaned],
+          });
+        }
+      }
+
+      if (parsedItems.length > 0) {
+        const addedItems: DraftOrderItem[] = [];
+        for (const item of parsedItems) {
+          const searchTerms = [item.productName, ...(item.synonyms || [])].map((t) => t.toLowerCase());
+          const matchedProduct = products.find((p) => {
+            const pName = p.name.toLowerCase();
+            const pClean = pName.replace(/\(.*?\)/g, '').trim();
+            return searchTerms.some(
+              (st) =>
+                pName === st ||
+                pName.includes(st) ||
+                st.includes(pName) ||
+                pClean === st ||
+                pClean.includes(st) ||
+                st.includes(pClean)
+            );
+          });
+          if (matchedProduct) {
+            const itemUnit = item.unit || matchedProduct.unit || 'Pcs';
+            const basePrice = item.price || matchedProduct.price;
+            const unitPrice = getConvertedPrice(basePrice, matchedProduct.unit, itemUnit);
+            const itemTaxRate =
+              organization.showGstOnBill && organization.gstNumber ? matchedProduct.taxRate || 0 : 0;
+            const itemSubtotal = unitPrice * item.quantity;
+            const itemTotal = itemSubtotal;
+
+            addedItems.push({
+              productId: matchedProduct.id,
+              name: matchedProduct.name,
+              price: unitPrice,
+              quantity: item.quantity,
+              unit: itemUnit,
+              taxRate: itemTaxRate,
+              total: itemTotal,
+            });
+          }
+        }
+
+        if (addedItems.length > 0) {
+          const updatedItems = [...session.items, ...addedItems];
+          const currentSubtotal = updatedItems.reduce((sum, it) => sum + it.price * it.quantity, 0);
+          const firstAdded = addedItems[0];
+          const itemsSummary = updatedItems
+            .map(
+              (it, idx) =>
+                `${idx + 1}. **${it.name}** — ${it.quantity} ${it.unit} (${currency}${it.total.toFixed(2)})`
+            )
+            .join('\n');
+
+          return {
+            text:
+              `✅ Added **${firstAdded.name}** — ${firstAdded.quantity} ${firstAdded.unit} (${currency}${firstAdded.total.toFixed(2)}).\n\n` +
+              `**Current Cart (${updatedItems.length} item${updatedItems.length > 1 ? 's' : ''}):**\n${itemsSummary}\n\n` +
+              `• **Cart Total**: **${currency}${currentSubtotal.toFixed(2)}**\n\n` +
+              `Do you want to add more products? (Yes / No)\n` +
+              `Would you like to **Add another Product** or **Generate Bill**?`,
+            actions: [
+              {
+                id: 'act_proceed_bill',
+                label: `Generate Bill (${currency}${currentSubtotal.toFixed(2)})`,
+                type: 'PROCEED_FOR_BILL',
+                icon: 'receipt',
+              },
+              {
+                id: 'act_add_more',
+                label: '+ Add More Products',
+                type: 'ADD_PRODUCT',
+                icon: 'plus-circle-outline',
+              },
+            ],
+            suggestedFollowUps: [
+              'Generate Bill',
+              '+ Add Product',
+              ...products
+                .filter((p) => !updatedItems.some((i) => i.productId === p.id))
+                .slice(0, 2)
+                .map((p) => `Add ${p.name}`),
+            ],
+            orderSession: {
+              ...session,
+              items: updatedItems,
+              step: 'AWAITING_MORE_PRODUCTS',
+            },
+          };
+        }
+      }
+
+      return {
+        text: `Would you like to **Add another Product** or **Generate Bill**? Please choose an option below:`,
+        suggestedFollowUps: ['Generate Bill', '+ Add Product', 'No'],
+        orderSession: session,
+      };
+    }
+
+    // D. State: AWAITING_DISCOUNT
+    if (session.step === 'AWAITING_DISCOUNT') {
+      const subtotal = session.items.reduce((sum, it) => sum + it.price * it.quantity, 0);
+
+      // If user wants to add more products instead of giving discount
+      if (isAddProductCommand(rawQuery)) {
+        return {
+          text:
+            `Sure! Which product would you like to add next?\n` +
+            `*(Current Cart: ${session.items.length} item${session.items.length > 1 ? 's' : ''} — ${currency}${subtotal.toFixed(2)})*`,
+          suggestedFollowUps: [
+            'Generate Bill',
+            '+ Add Product',
+            ...products
+              .filter((p) => !session.items.some((i) => i.productId === p.id))
+              .slice(0, 3)
+              .map((p) => `1 ${p.unit || 'pcs'} ${p.name}`),
+          ],
+          orderSession: {
+            ...session,
+            step: 'AWAITING_PRODUCT',
+          },
+        };
+      }
+
+      let discountPct = 0;
+      let discountVal = 0;
+
+      const parsedDisc = parseDiscount(rawQuery);
+      if (parsedDisc) {
+        if (parsedDisc.percentage !== undefined) {
+          discountPct = parsedDisc.percentage;
+          discountVal = (subtotal * discountPct) / 100;
+        } else if (parsedDisc.amount !== undefined) {
+          discountVal = Math.min(subtotal, parsedDisc.amount);
+          discountPct = subtotal > 0 ? Math.round((discountVal / subtotal) * 100) : 0;
+        }
+      } else if (isNegativeOrDone(rawQuery)) {
+        discountPct = 0;
+        discountVal = 0;
+      }
+
+      const taxTotal =
+        organization.showGstOnBill && organization.gstNumber
+          ? session.items.reduce(
+              (sum, item) => sum + (item.price * item.quantity * (item.taxRate / 100)),
+              0
+            )
+          : 0;
+      const cgstTotal = taxTotal / 2;
+      const sgstTotal = taxTotal / 2;
+      const grandTotal = Math.max(0, subtotal - discountVal + taxTotal);
+
+      const targetCustomer =
+        customers.find((c) => c.id === session.customerId) ||
+        customers.find((c) => c.id === 'default_customer') || {
+          id: 'default_customer',
+          name: 'Walkin-customer',
+          phone: '0000000000',
+          email: '',
+          address: '',
+        };
+
+      const paymentMethod = session.paymentMethod || 'Cash';
+      const paymentStatus = session.paymentStatus || 'Paid';
+
+      const draftOrderData: DraftOrderData = {
+        customer: targetCustomer,
+        items: session.items,
+        subtotal,
+        taxTotal,
+        cgstTotal,
+        sgstTotal,
+        grandTotal,
+        paymentMethod,
+        paymentStatus,
+      };
+
+      const itemsSummary = session.items
+        .map(
+          (item, idx) =>
+            `${idx + 1}. **${item.name}** — ${item.quantity} ${item.unit} × ${currency}${item.price.toFixed(
+              2
+            )} = **${currency}${item.total.toFixed(2)}**`
+        )
+        .join('\n');
+
+      return {
+        text:
+          `🎉 **Final Bill Summary**\n\n` +
+          `• **Customer**: ${targetCustomer.name}\n` +
+          `• **Items (${session.items.length})**:\n${itemsSummary}\n\n` +
+          `• **Subtotal**: ${currency}${subtotal.toFixed(2)}\n` +
+          (discountVal > 0 ? `• **Discount (${discountPct}%)**: -${currency}${discountVal.toFixed(2)}\n` : '') +
+          (taxTotal > 0 ? `• **GST Tax**: ${currency}${taxTotal.toFixed(2)}\n` : '') +
+          `• **Grand Total**: **${currency}${grandTotal.toFixed(2)}**\n` +
+          `• **Payment**: ${paymentMethod} (${paymentStatus === 'Paid' ? '✅ Paid' : '⚠️ Unpaid / Udhar'})\n\n` +
+          `Can I proceed to generate and print this bill?`,
+        cardType: 'FINAL_BILL_PREVIEW',
+        cardData: {
+          ...draftOrderData,
+          discount: discountVal,
+          discountPct,
+        },
+        actions: [
+          {
+            id: 'act_auto_print',
+            label: `Generate & Print Bill (${currency}${grandTotal.toFixed(2)})`,
+            type: 'AUTO_PRINT_PREVIEW',
+            payload: {
+              ...draftOrderData,
+              discount: discountVal,
+              discountPct,
+            },
+            icon: 'printer',
+          },
+          {
+            id: 'act_open_builder',
+            label: 'Open in Invoice Builder',
+            type: 'NAVIGATE',
+            payload: {
+              screen: 'Billing',
+              prefillItems: session.items,
+              discountPct,
+              paymentMethod,
+              paymentStatus,
+              customerId: targetCustomer.id,
+            },
+            icon: 'pencil-outline',
+          },
+          {
+            id: 'act_cancel_order',
+            label: 'Cancel Order',
+            type: 'CANCEL_ORDER',
+            icon: 'close-circle-outline',
+          },
+        ],
+        suggestedFollowUps: ['Generate Bill', 'Confirm & Print', '+ Add Product', 'Pay via UPI', 'Mark as Unpaid (Udhar)', 'Cancel Order'],
+        orderSession: {
+          ...session,
+          discountPct,
+          discountAmount: discountVal,
+          step: 'AWAITING_CONFIRMATION',
+        },
+      };
+    }
+
+    // E. State: AWAITING_CONFIRMATION
+    if (session.step === 'AWAITING_CONFIRMATION') {
+      const norm = rawQuery.trim().toLowerCase();
+
+      if (isAddProductCommand(rawQuery)) {
+        const subtotal = session.items.reduce((sum, it) => sum + it.price * it.quantity, 0);
+        return {
+          text:
+            `Sure! Which product would you like to add next?\n` +
+            `*(Current Cart: ${session.items.length} item${session.items.length > 1 ? 's' : ''} — ${currency}${subtotal.toFixed(2)})*`,
+          suggestedFollowUps: [
+            'Generate Bill',
+            ...products
+              .filter((p) => !session.items.some((i) => i.productId === p.id))
+              .slice(0, 3)
+              .map((p) => `1 ${p.unit || 'pcs'} ${p.name}`),
+          ],
+          orderSession: {
+            ...session,
+            step: 'AWAITING_PRODUCT',
+          },
+        };
+      }
+
+      if (
+        isAffirmative(rawQuery) ||
+        /\b(print|generate|create|bill|confirm|proceed|ha|ho|banao|kar do)\b/i.test(norm)
+      ) {
+        const subtotal = session.items.reduce((sum, it) => sum + it.price * it.quantity, 0);
+        const discountVal = session.discountAmount || 0;
+        const taxTotal =
+          organization.showGstOnBill && organization.gstNumber
+            ? session.items.reduce(
+                (sum, item) => sum + (item.price * item.quantity * (item.taxRate / 100)),
+                0
+              )
+            : 0;
+        const cgstTotal = taxTotal / 2;
+        const sgstTotal = taxTotal / 2;
+        const grandTotal = Math.max(0, subtotal - discountVal + taxTotal);
+
+        const targetCustomer =
+          customers.find((c) => c.id === session.customerId) ||
+          customers.find((c) => c.id === 'default_customer') || {
+            id: 'default_customer',
+            name: 'Walkin-customer',
+            phone: '0000000000',
+            email: '',
+            address: '',
+          };
+
+        const draftOrderData: DraftOrderData = {
+          customer: targetCustomer,
+          items: session.items,
+          subtotal,
+          taxTotal,
+          cgstTotal,
+          sgstTotal,
+          grandTotal,
+          paymentMethod: session.paymentMethod || 'Cash',
+          paymentStatus: session.paymentStatus || 'Paid',
+        };
+
+        return {
+          text: `🖨️ Generating bill and opening Print Preview...`,
+          actions: [
+            {
+              id: 'act_auto_print',
+              label: `Print Bill (${currency}${grandTotal.toFixed(2)})`,
+              type: 'AUTO_PRINT_PREVIEW',
+              payload: {
+                ...draftOrderData,
+                discount: discountVal,
+                discountPct: session.discountPct,
+              },
+              icon: 'printer',
+            },
+          ],
+          orderSession: null,
+        };
+      }
+
+      if (/\b(upi|gpay|phonepe|online)\b/i.test(norm)) {
+        session.paymentMethod = 'UPI';
+        session.paymentStatus = 'Paid';
+        return dispatchAgentQuery(String(session.discountPct || 0) + '%', {
+          ...context,
+          orderSession: { ...session, step: 'AWAITING_DISCOUNT' },
+        });
+      }
+      if (/\b(udhar|unpaid|credit|khata)\b/i.test(norm)) {
+        session.paymentStatus = 'Unpaid';
+        return dispatchAgentQuery(String(session.discountPct || 0) + '%', {
+          ...context,
+          orderSession: { ...session, step: 'AWAITING_DISCOUNT' },
+        });
+      }
+
+      return {
+        text: `Please tap **Generate & Print Bill** below or say **Generate Bill / Confirm** to create the invoice.`,
+        suggestedFollowUps: ['Generate Bill', 'Confirm & Print', 'Pay via UPI', 'Mark as Unpaid (Udhar)', 'Cancel Order'],
+        orderSession: session,
+      };
+    }
+  }
 
   // 1. Guardrail Scope Check
   const guardrail = checkDomainGuardrail(rawQuery);
@@ -533,18 +1228,6 @@ export const dispatchAgentQuery = async (
           };
       }
 
-      // Helper for unit conversion
-      const getConvertedPrice = (basePrice: number, baseUnit: string, targetUnit: string): number => {
-        const bu = (baseUnit || 'Pcs').toLowerCase();
-        const tu = (targetUnit || 'Pcs').toLowerCase();
-        if (bu === tu) return basePrice;
-        if (bu === 'kg' && tu === 'gm') return basePrice / 1000;
-        if (bu === 'gm' && tu === 'kg') return basePrice * 1000;
-        if ((bu === 'ltr' || bu === 'litre') && tu === 'ml') return basePrice / 1000;
-        if (bu === 'ml' && (tu === 'ltr' || tu === 'litre')) return basePrice * 1000;
-        return basePrice;
-      };
-
       // 2. Resolve Items
       const rawItems = entities.orderItems && entities.orderItems.length > 0
         ? entities.orderItems
@@ -563,7 +1246,16 @@ export const dispatchAgentQuery = async (
 
         const matchedProduct = products.find((p) => {
           const pName = p.name.toLowerCase();
-          return searchTerms.some((st) => pName.includes(st) || st.includes(pName));
+          const pClean = pName.replace(/\(.*?\)/g, '').trim();
+          return searchTerms.some(
+            (st) =>
+              pName === st ||
+              pName.includes(st) ||
+              st.includes(pName) ||
+              pClean === st ||
+              pClean.includes(st) ||
+              st.includes(pClean)
+          );
         });
 
         if (matchedProduct) {
@@ -572,8 +1264,7 @@ export const dispatchAgentQuery = async (
           const unitPrice = getConvertedPrice(basePrice, matchedProduct.unit, itemUnit);
           const itemTaxRate = organization.showGstOnBill && organization.gstNumber ? matchedProduct.taxRate || 0 : 0;
           const itemSubtotal = unitPrice * item.quantity;
-          const itemTax = itemSubtotal * (itemTaxRate / 100);
-          const itemTotal = itemSubtotal + itemTax;
+          const itemTotal = itemSubtotal;
 
           draftItems.push({
             productId: matchedProduct.id,
@@ -647,26 +1338,75 @@ export const dispatchAgentQuery = async (
         }
 
         const topProds = products.slice(0, 4);
-        const prodSuggestions = topProds
-          .map((p) => `• *'Create bill for 1 ${p.unit || 'pcs'} ${p.name}'*`)
-          .join('\n');
+        const topProdNames = topProds.map((p) => p.name).join(', ');
 
+        const isCashBill = rawQuery.toLowerCase().includes('cash bill');
         return {
           text:
-            `🛍️ **Create a New Order**\n\n` +
-            `Tell me which items you want to bill, for example:\n` +
-            prodSuggestions +
-            `\n\nOr tap below to open the standard billing screen.`,
+            `🛍️ **${isCashBill ? 'Create Cash Bill' : 'Create a New Order'}**\n\n` +
+            `Sure! Which product would you like to add?\n*(e.g., 'Apple 1.5 kg' or choose: ${topProdNames})*`,
+          suggestedFollowUps: ['+ Add Product', ...topProds.map((p) => `1 ${p.unit || 'Pcs'} ${p.name}`)],
+          orderSession: {
+            step: 'AWAITING_PRODUCT',
+            items: [],
+            customerId: targetCustomer.id,
+            paymentMethod: entities.paymentMethod || 'Cash',
+            paymentStatus: entities.paymentStatus || 'Paid',
+          },
+        };
+      }
+
+      // If single item without explicit customer/paymentStatus/custom price, start conversational flow
+      const isExplicitSingleShot =
+        Boolean(entities.customerName) ||
+        Boolean(entities.paymentStatus) ||
+        rawItems.some((ri) => ri.price !== undefined);
+
+      if (
+        !isExplicitSingleShot &&
+        draftItems.length === 1 &&
+        !rawQuery.includes('aani') &&
+        !rawQuery.includes('ani') &&
+        !rawQuery.includes('and') &&
+        !rawQuery.includes(',') &&
+        !rawQuery.includes('&')
+      ) {
+        const first = draftItems[0];
+        const currentSubtotal = first.total;
+        return {
+          text:
+            `✅ Added **${first.name}** — ${first.quantity} ${first.unit} (${currency}${first.total.toFixed(2)}).\n\n` +
+            `• **Cart Total**: **${currency}${first.total.toFixed(2)}** (1 item)\n\n` +
+            `Do you want to add more products? (Yes / No)\n` +
+            `Would you like to **Add another Product** or **Generate Bill**?`,
           actions: [
             {
-              id: 'act_open_billing',
-              label: 'Open Billing Screen',
-              type: 'NAVIGATE',
-              payload: { screen: 'Billing' },
+              id: 'act_proceed_bill',
+              label: `Generate Bill (${currency}${currentSubtotal.toFixed(2)})`,
+              type: 'PROCEED_FOR_BILL',
               icon: 'receipt',
             },
+            {
+              id: 'act_add_more',
+              label: '+ Add More Products',
+              type: 'ADD_PRODUCT',
+              icon: 'plus-circle-outline',
+            },
           ],
-          suggestedFollowUps: topProds.slice(0, 3).map((p) => `Order 1 ${p.name}`),
+          suggestedFollowUps: [
+            'Generate Bill',
+            '+ Add Product',
+            'Yes',
+            'No',
+            ...products.filter((p) => p.id !== first.productId).slice(0, 2).map((p) => `Add ${p.name}`),
+          ],
+          orderSession: {
+            step: 'AWAITING_MORE_PRODUCTS',
+            items: draftItems,
+            customerId: targetCustomer.id,
+            paymentMethod: entities.paymentMethod || 'Cash',
+            paymentStatus: entities.paymentStatus || 'Paid',
+          },
         };
       }
 

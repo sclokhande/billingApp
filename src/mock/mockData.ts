@@ -38,6 +38,8 @@ export const MOCK_ORGANIZATION: Organization = {
   slogan: 'Fresh Groceries • Best Prices • Visit Again!',
   printWidth: '58mm',
   securityPin: '1234',
+  showFooterTextOnBill: true,
+  footerText: 'Print by Parchiwala',
 };
 
 export const MOCK_PRODUCTS: Product[] = [

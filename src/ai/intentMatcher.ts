@@ -59,6 +59,9 @@ const NUMBER_WORDS: Record<string, number> = {
 // Common grocery transliteration and translation helpers
 export const PRODUCT_SYNONYMS: Record<string, string[]> = {
   apple: ['safarchand', 'seb', 'apple', 'apples'],
+  chikoo: ['chiku', 'chikoo', 'chiuku', 'chikku', 'sapota', 'sapodilla'],
+  banana: ['kela', 'kele', 'banana', 'bananas'],
+  mango: ['aamba', 'aam', 'mango', 'mangoes'],
   rice: ['tandul', 'chawal', 'rice', 'basmati'],
   sugar: ['sakhar', 'cheeni', 'sugar'],
   tea: ['chaha', 'chai', 'tea', 'patti'],
@@ -71,14 +74,137 @@ export const PRODUCT_SYNONYMS: Record<string, string[]> = {
   salt: ['meeth', 'namak', 'salt'],
 };
 
-const resolveProductSynonyms = (rawName: string): { canonicalName: string; synonyms: string[] } => {
-  const lower = rawName.toLowerCase().trim();
-  for (const [canonical, syns] of Object.entries(PRODUCT_SYNONYMS)) {
-    if (syns.some((s) => lower === s || lower.includes(s) || s.includes(lower))) {
-      return { canonicalName: canonical, synonyms: [rawName, canonical, ...syns] };
+export const isAddProductCommand = (text: string): boolean => {
+  const norm = text.trim().toLowerCase();
+  return (
+    /^(add|add product|add products|add item|add items|add more|add more product|add more products|\+ add product|\+ add more product|\+ add more products|\+ add|\+ add item|aur add karo|aur product|ek aur|yes|haan|ho)\b/i.test(
+      norm
+    ) ||
+    norm === 'add' ||
+    norm === 'add product' ||
+    norm === 'add products' ||
+    norm === '+ add product' ||
+    norm === '+ add more product' ||
+    norm === '+ add more products' ||
+    norm === 'add more' ||
+    norm === '+ add' ||
+    norm === 'add item' ||
+    norm === 'yes'
+  );
+};
+
+export const isAffirmative = (text: string): boolean => {
+  const norm = text.trim().toLowerCase();
+  return (
+    /^(yes|yeah|yep|yup|haan|ha|haa|ho|hoyi|sure|ok|okay|add|add more|aur|aur add karo|yes please|y)\b/i.test(norm) ||
+    norm === 'yes' ||
+    norm === 'haan' ||
+    norm === 'ho' ||
+    norm === 'add'
+  );
+};
+
+export const isNegativeOrDone = (text: string): boolean => {
+  const norm = text.trim().toLowerCase();
+  if (
+    /^(i\s+)?(?:don'?t|dont|do\s+not)\s+(?:want\s+to\s+)?add(?:\s+(?:any\s+)?product[s]?)?/i.test(norm) ||
+    /^(no\s+(?:more\s+)?(?:product[s]?|item[s]?|add)|no\s+need|nothing|skip|leave\s+it)\b/i.test(norm) ||
+    /\b(dont\s+add|don't\s+add|nahi\s+pahije|nako|kahi\s+nako|kuch\s+nahi)\b/i.test(norm)
+  ) {
+    return true;
+  }
+  return (
+    /^(no|nope|nah|nahi|nahin|na|n|bas|no more|done|proceed|proceed for bill|proceed to bill|proceed bill|checkout|finish|nahi pahije|create bill|nikalo|banao|khatam|no discount|none|bill karo|bill please)\b/i.test(
+      norm
+    ) ||
+    norm === 'no' ||
+    norm === 'nahi' ||
+    norm === 'bas' ||
+    norm === 'done' ||
+    norm === 'proceed' ||
+    norm === 'proceed for bill' ||
+    norm === 'proceed to bill'
+  );
+};
+
+export const isProceedForBill = (text: string): boolean => {
+  const norm = text.trim().toLowerCase();
+  if (
+    /^(i\s+)?(?:don'?t|dont|do\s+not)\s+(?:want\s+to\s+)?add(?:\s+(?:any\s+)?product[s]?)?/i.test(norm) ||
+    /^(no\s+(?:more\s+)?(?:product[s]?|item[s]?|add)|no\s+need|nothing|skip|leave\s+it)\b/i.test(norm) ||
+    /\b(dont\s+add|don't\s+add|nahi\s+pahije|nako|kahi\s+nako|kuch\s+nahi)\b/i.test(norm)
+  ) {
+    return true;
+  }
+  return (
+    /\b(proceed for bill|proceed to bill|proceed bill|proceed with bill|proceed|generate bill|generate|create bill|bill banao|bill banva|bill nikalo|bill please|only bill|just bill|checkout|make bill|banao bill)\b/i.test(
+      norm
+    ) ||
+    norm === 'proceed for bill' ||
+    norm === 'proceed to bill' ||
+    norm === 'proceed' ||
+    norm === 'generate bill' ||
+    norm === 'generate' ||
+    norm === 'bill' ||
+    norm === 'done' ||
+    norm === 'finish' ||
+    norm === 'bas'
+  );
+};
+
+export const isCancelCommand = (text: string): boolean => {
+  const norm = text.trim().toLowerCase();
+  return /^(cancel|stop|reset|abort|cancel order|radd|radd kara|nahi chahiye|chhod do|chhod)\b/i.test(
+    norm
+  );
+};
+
+export const parseDiscount = (text: string): { percentage?: number; amount?: number } | null => {
+  const norm = text.trim().toLowerCase();
+  if (isNegativeOrDone(norm) || /\b(no discount|zero|none|0%|0 percent|0)\b/i.test(norm)) {
+    return { percentage: 0 };
+  }
+  const mPct = norm.match(/(\d+(?:\.\d+)?)\s*(?:%|percent|pratishat|takke)/i);
+  if (mPct) {
+    const val = parseFloat(mPct[1]);
+    if (val >= 0 && val <= 100) {
+      return { percentage: val };
     }
   }
-  return { canonicalName: rawName, synonyms: [rawName] };
+  const mFlatRs = norm.match(/(?:discount\s+)?(\d+(?:\.\d+)?)\s*(?:rs|rupees|rupaye|inr)/i);
+  if (mFlatRs) {
+    return { amount: parseFloat(mFlatRs[1]) };
+  }
+  const mPlainNum = norm.match(/^(\d+(?:\.\d+)?)$/);
+  if (mPlainNum) {
+    const val = parseFloat(mPlainNum[1]);
+    if (val > 0 && val <= 50) {
+      return { percentage: val };
+    }
+    return { amount: val };
+  }
+  return null;
+};
+
+const resolveProductSynonyms = (rawName: string): { canonicalName: string; synonyms: string[] } => {
+  const lower = rawName.toLowerCase().trim();
+  const stripped = lower.replace(/\(.*?\)/g, '').trim();
+  for (const [canonical, syns] of Object.entries(PRODUCT_SYNONYMS)) {
+    if (
+      syns.some(
+        (s) =>
+          lower === s ||
+          lower.includes(s) ||
+          s.includes(lower) ||
+          stripped === s ||
+          stripped.includes(s) ||
+          s.includes(stripped)
+      )
+    ) {
+      return { canonicalName: canonical, synonyms: [rawName, stripped, canonical, ...syns] };
+    }
+  }
+  return { canonicalName: rawName, synonyms: [rawName, stripped] };
 };
 
 /**
@@ -101,6 +227,9 @@ export const parseOrderItems = (
   let customerName: string | undefined;
   let paymentStatus: 'Paid' | 'Unpaid' | undefined;
   let paymentMethod: string | undefined;
+
+  // 0. Strip leading plus or symbol
+  workingText = workingText.replace(/^\s*\+\s*/, '');
 
   // 1. Normalize units: kilo -> kg, liter -> ltr, etc.
   workingText = workingText
@@ -143,9 +272,9 @@ export const parseOrderItems = (
     .replace(/\b(?:udhari\s+var|udhar\s+par|udhari|udhar|khatyavar|nantar\s+deto)\b/gi, ' ')
     .replace(/\b(?:by|in|via)?\s*(?:cash|upi|card|online)\s*(?:payment|mode)?\b/gi, ' ');
 
-  // 6. Strip action verbs in Marathi, Hindi & English
+  // 6. Strip action verbs in Marathi, Hindi & English (including select, pick, product, etc.)
   workingText = workingText
-    .replace(/\b(kar\s+do|karun\s+dya|kar\s+dena|banva|banao|lihun\s+ghya|likh\s+lo|likh\s+do|taak|kara|karo|bilaat\s+ghya|bilaat|pavti|create|make|new|draft|place|take|an|a|bill|invoice|order|parchi|with|please)\b/gi, ' ');
+    .replace(/\b(kar\s+do|karun\s+dya|kar\s+dena|banva|banao|lihun\s+ghya|likh\s+lo|likh\s+do|taak|kara|karo|bilaat\s+ghya|bilaat|pavti|create|make|new|draft|place|take|an|a|bill|invoice|order|parchi|with|please|add|aur|select|choose|pick|product|item|products|items|chahiye|pahije|dya|de\s+do|de|dena|want|need)\b/gi, ' ');
 
   // 7. Match customer clause (e.g. "for Ramesh", "Ramesh saathi", "for customer Ramesh")
   const custMatch = workingText.match(/\b(?:for|saathi|sathi)\s+(?:customer\s+|client\s+)?([a-zA-Z\s]+)$/i);
@@ -183,15 +312,20 @@ export const parseOrderItems = (
   const items: ParsedItem[] = [];
 
   for (const seg of segments) {
-    const cleanSeg = seg.replace(/^\s*(?:for|with|of)\s+/i, '').trim();
+    const cleanSeg = seg.replace(/^\s*(?:for|with|of|add|aur|select|choose|pick|product|item)\s+/i, '').trim();
 
-    // Match: quantity (e.g. 1 or 2.5), optional unit (kg, gm, pcs, ltr, etc.), item name, and optional price
+    // Pattern 1: quantity first (e.g. "1.5 kg apple (fresh)" or "2 milk at 30")
     const m = cleanSeg.match(
-      /^(\d+(?:\.\d+)?)\s*(kg|gm|pcs|ltr|pkt|meter|box)?\s+([a-zA-Z0-9\s\-]+?)(?:\s+(?:at|@|rate|price|rs\.?|inr|rupaye|rupya)\s*(\d+(?:\.\d+)?)(?:\s*(?:rs|inr|\/\-|rupaye|rupya))?)?$/i
+      /^(\d+(?:\.\d+)?)\s*(kg|gm|pcs|ltr|pkt|meter|box)?\s+([a-zA-Z0-9\s\-\(\)\.\/\'\&]+?)(?:\s+(?:at|@|rate|price|rs\.?|inr|rupaye|rupya)\s*(\d+(?:\.\d+)?)(?:\s*(?:rs|inr|\/\-|rupaye|rupya))?)?$/i
+    );
+
+    // Pattern 2: product first (e.g. "apple (fresh) 1.5kg" or "chiuku 1kg" or "chawal 5kg rate 50")
+    const mPostQty = cleanSeg.match(
+      /^([a-zA-Z0-9\s\-\(\)\.\/\'\&]+?)\s+(\d+(?:\.\d+)?)\s*(kg|gm|pcs|ltr|pkt|meter|box)?(?:\s+(?:at|@|rate|price|rs\.?|inr|rupaye|rupya)\s*(\d+(?:\.\d+)?)(?:\s*(?:rs|inr|\/\-|rupaye|rupya))?)?$/i
     );
 
     if (m) {
-      const rawName = m[3].replace(/^(?:for|with|of)\s+/i, '').trim();
+      const rawName = m[3].replace(/^(?:for|with|of|add|select|product|item)\s+/i, '').trim();
       const { canonicalName, synonyms } = resolveProductSynonyms(rawName);
       items.push({
         quantity: parseFloat(m[1]),
@@ -200,13 +334,23 @@ export const parseOrderItems = (
         price: m[4] ? parseFloat(m[4]) : undefined,
         synonyms,
       });
+    } else if (mPostQty) {
+      const rawName = mPostQty[1].replace(/^(?:for|with|of|add|select|product|item)\s+/i, '').trim();
+      const { canonicalName, synonyms } = resolveProductSynonyms(rawName);
+      items.push({
+        quantity: parseFloat(mPostQty[2]),
+        unit: mPostQty[3],
+        productName: canonicalName,
+        price: mPostQty[4] ? parseFloat(mPostQty[4]) : undefined,
+        synonyms,
+      });
     } else {
-      // If no quantity at start, check if item name with optional price
+      // If no quantity at start or end, check if item name with optional price
       const mNoQty = cleanSeg.match(
-        /^([a-zA-Z0-9\s\-]+?)(?:\s+(?:at|@|rate|price|rs\.?|inr|rupaye|rupya)\s*(\d+(?:\.\d+)?)(?:\s*(?:rs|inr|\/\-|rupaye|rupya))?)?$/i
+        /^([a-zA-Z0-9\s\-\(\)\.\/\'\&]+?)(?:\s+(?:at|@|rate|price|rs\.?|inr|rupaye|rupya)\s*(\d+(?:\.\d+)?)(?:\s*(?:rs|inr|\/\-|rupaye|rupya))?)?$/i
       );
       if (mNoQty) {
-        const cleanName = mNoQty[1].replace(/^(?:customer|client|for|with|of)\s+/i, '').trim();
+        const cleanName = mNoQty[1].replace(/^(?:customer|client|for|with|of|add|select|product|item)\s+/i, '').trim();
         if (cleanName.length > 1 && !/^\d+$/.test(cleanName)) {
           const { canonicalName, synonyms } = resolveProductSynonyms(cleanName);
           items.push({
@@ -249,9 +393,11 @@ export const matchIntent = (query: string): MatchResult => {
   // 3. DRAFT BILL / CREATE ORDER (High priority: Check creation commands before queries)
   // Supports English, Hinglish ("bhaiya 1 kg apple kar do udhar par"), and Marathi ("bhau 1 kg apple karun dya udhari var")
   const isDraftBill =
+    /\b(fast cash bill|cash bill|quick bill|fast bill|quick cash bill|udhar bill|credit bill)\b/i.test(normalized) ||
+    /^(?:create\s+(?:an?\s+)?order|new\s+order|order\s+karo|order\s+banao|order)$/i.test(normalized) ||
     (/\b(create|make|new|draft|place|take)\b/i.test(normalized) &&
       /\b(bill|invoice|parchi|order|pavti)\b/i.test(normalized)) ||
-    /^(?:order|bill|pavti)\s+\d+/i.test(normalized) ||
+    /^(?:order|bill|pavti)\s+/i.test(normalized) ||
     /\b(kar\s*do|karun\s*dya|kar\s*dena|banva|banao|lihun\s*ghya|likh\s*lo|likh\s*do|bilaat)\b/i.test(
       normalized
     ) ||

@@ -11,6 +11,8 @@ export interface Organization {
   slogan: string;
   printWidth?: string; // '58mm' | '80mm'
   securityPin?: string;
+  showFooterTextOnBill?: boolean;
+  footerText?: string;
 }
 
 export interface Product {

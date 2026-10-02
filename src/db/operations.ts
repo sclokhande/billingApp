@@ -22,6 +22,8 @@ export const DEFAULT_ORG: Organization = {
   slogan: 'Thank You Visit again',
   printWidth: '58mm',
   securityPin: '1234',
+  showFooterTextOnBill: true,
+  footerText: 'Print by Parchiwala',
 };
 
 // ==========================================
@@ -39,6 +41,8 @@ export const getOrganization = async (): Promise<Organization> => {
           ...row,
           showGstOnBill: row.showGstOnBill === 1,
           securityPin: row.securityPin || '1234',
+          showFooterTextOnBill: row.showFooterTextOnBill === undefined || row.showFooterTextOnBill === null ? true : row.showFooterTextOnBill === 1,
+          footerText: row.footerText !== undefined && row.footerText !== null ? row.footerText : 'Print by Parchiwala',
         };
       }
       // If none exists, insert and return default
@@ -56,16 +60,20 @@ export const getOrganization = async (): Promise<Organization> => {
     return {
       ...memoryDb.organization,
       securityPin: memoryDb.organization.securityPin || '1234',
+      showFooterTextOnBill: memoryDb.organization.showFooterTextOnBill !== false,
+      footerText: memoryDb.organization.footerText !== undefined ? memoryDb.organization.footerText : 'Print by Parchiwala',
     };
   }
 };
 
 export const saveOrganization = async (org: Organization): Promise<void> => {
   const mode = getDBMode();
+  const showFooter = org.showFooterTextOnBill !== false ? 1 : 0;
+  const footerText = org.footerText !== undefined ? org.footerText : 'Print by Parchiwala';
   if (mode === 'SQLITE') {
     await executeQuery(
-      `INSERT OR REPLACE INTO organization (id, name, address, phone, mobile, email, gstNumber, showGstOnBill, currency, slogan, printWidth, securityPin) 
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT OR REPLACE INTO organization (id, name, address, phone, mobile, email, gstNumber, showGstOnBill, currency, slogan, printWidth, securityPin, showFooterTextOnBill, footerText) 
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         org.id || 'default_org',
         org.name,
@@ -79,11 +87,17 @@ export const saveOrganization = async (org: Organization): Promise<void> => {
         org.slogan,
         org.printWidth || '58mm',
         org.securityPin || '1234',
+        showFooter,
+        footerText,
       ]
     );
   } else {
-    memoryDb.organization = org;
-    await AsyncStorage.setItem(ASYNC_KEYS.ORGANIZATION, JSON.stringify(org));
+    memoryDb.organization = {
+      ...org,
+      showFooterTextOnBill: org.showFooterTextOnBill !== false,
+      footerText,
+    };
+    await AsyncStorage.setItem(ASYNC_KEYS.ORGANIZATION, JSON.stringify(memoryDb.organization));
   }
 };
 
@@ -254,6 +268,16 @@ export const getInvoiceItems = async (invoiceId: string): Promise<InvoiceItem[]>
     return res.rows;
   } else {
     return memoryDb.invoiceItems.filter((item) => item.invoiceId === invoiceId);
+  }
+};
+
+export const getAllInvoiceItems = async (): Promise<InvoiceItem[]> => {
+  const mode = getDBMode();
+  if (mode === 'SQLITE') {
+    const res = await executeQuery('SELECT * FROM invoice_items');
+    return res.rows;
+  } else {
+    return [...memoryDb.invoiceItems];
   }
 };
 

@@ -7,6 +7,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   Dimensions,
+  Alert,
 } from 'react-native';
 import {
   Modal,
@@ -23,7 +24,7 @@ import {
 } from 'react-native-paper';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import { useBilling } from '../context/BillingContext';
-import { AgentMessage, AgentAction } from '../ai/types';
+import { AgentMessage, AgentAction, ActiveOrderSession } from '../ai/types';
 import { Invoice, InvoiceItem } from '../db/types';
 import { dispatchAgentQuery } from '../ai/agentDispatcher';
 import { QUICK_PROMPTS } from '../ai/quickPrompts';
@@ -38,13 +39,152 @@ interface AiAssistantModalProps {
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 
 const VOICE_SAMPLES = [
-  'Bhau 1 kg apple karun dya udhari var',
-  'Bhaiya 1 kg apple kar do udhar par',
+  'Bhau 1 kg apple karun dya',
+  'Bhaiya 1 kg apple kar do',
   'Dada 2 kilo tandul aani 1 tel lihun ghya',
   'Aaj cha sale kiti jhala',
   'Konache paise baki ahet',
   'Shevatche bill print kara',
 ];
+
+const FinalBillPreviewCard: React.FC<{
+  data: any;
+  currency: string;
+  onPrint: () => void;
+  onOpenBuilder: () => void;
+  onCancel: () => void;
+  isProcessing: boolean;
+}> = ({ data, currency, onPrint, onOpenBuilder, onCancel, isProcessing }) => {
+  const theme = useTheme() as any;
+  if (!data) return null;
+
+  const isPaid = data.paymentStatus === 'Paid';
+
+  return (
+    <Card style={styles.finalBillCard} mode="outlined">
+      <Card.Content style={{ padding: 12, gap: 8 }}>
+        <View style={styles.finalBillHeader}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            <MaterialCommunityIcons name="receipt-text-outline" size={20} color={theme.colors.primary} />
+            <Text variant="titleSmall" style={{ fontWeight: 'bold' }}>
+              Final Bill Summary
+            </Text>
+          </View>
+          <Chip
+            compact
+            mode="flat"
+            style={{
+              backgroundColor: isPaid ? '#E8F5E9' : '#FFF3E0',
+            }}
+            textStyle={{
+              fontSize: 11,
+              fontWeight: 'bold',
+              color: isPaid ? '#2E7D32' : '#E65100',
+            }}
+          >
+            {isPaid ? '✅ Paid' : '⚠️ Unpaid'} • {data.paymentMethod || 'Cash'}
+          </Chip>
+        </View>
+
+        <Divider />
+
+        {/* Customer info */}
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Text variant="bodySmall" style={{ color: '#666' }}>Customer:</Text>
+          <Text variant="bodySmall" style={{ fontWeight: 'bold' }}>
+            {data.customer?.name || 'Walkin-customer'}
+          </Text>
+        </View>
+
+        {/* Items list */}
+        <View style={{ gap: 4, marginVertical: 2 }}>
+          {data.items?.map((it: any, idx: number) => (
+            <View key={idx} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Text variant="bodySmall" style={{ flex: 1 }}>
+                {idx + 1}. {it.name} <Text style={{ color: '#666' }}>({it.quantity} {it.unit})</Text>
+              </Text>
+              <Text variant="bodySmall" style={{ fontWeight: '600' }}>
+                {currency}{(it.total || it.price * it.quantity).toFixed(2)}
+              </Text>
+            </View>
+          ))}
+        </View>
+
+        <Divider />
+
+        {/* Totals */}
+        <View style={{ gap: 3 }}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+            <Text variant="bodySmall" style={{ color: '#666' }}>Subtotal:</Text>
+            <Text variant="bodySmall">{currency}{Number(data.subtotal || 0).toFixed(2)}</Text>
+          </View>
+
+          {Boolean(data.discount && data.discount > 0) && (
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+              <Text variant="bodySmall" style={{ color: '#2E7D32' }}>
+                Discount ({data.discountPct || 0}%):
+              </Text>
+              <Text variant="bodySmall" style={{ color: '#2E7D32', fontWeight: 'bold' }}>
+                -{currency}{Number(data.discount).toFixed(2)}
+              </Text>
+            </View>
+          )}
+
+          {Boolean(data.taxTotal && data.taxTotal > 0) && (
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+              <Text variant="bodySmall" style={{ color: '#666' }}>GST Tax:</Text>
+              <Text variant="bodySmall">{currency}{Number(data.taxTotal).toFixed(2)}</Text>
+            </View>
+          )}
+
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 4 }}>
+            <Text variant="titleMedium" style={{ fontWeight: 'bold' }}>Grand Total:</Text>
+            <Text variant="titleMedium" style={{ fontWeight: 'bold', color: theme.colors.primary }}>
+              {currency}{Number(data.grandTotal || 0).toFixed(2)}
+            </Text>
+          </View>
+        </View>
+
+        {/* Action Buttons */}
+        <View style={{ gap: 6, marginTop: 4 }}>
+          <Button
+            mode="contained"
+            icon="printer"
+            buttonColor={theme.colors.success || '#2E7D32'}
+            textColor="#FFFFFF"
+            loading={isProcessing}
+            disabled={isProcessing}
+            onPress={onPrint}
+            style={{ borderRadius: 8 }}
+          >
+            Generate & Print Bill ({currency}{Number(data.grandTotal || 0).toFixed(2)})
+          </Button>
+
+          <View style={{ flexDirection: 'row', gap: 6 }}>
+            <Button
+              mode="outlined"
+              icon="pencil-outline"
+              compact
+              style={{ flex: 1, borderRadius: 8 }}
+              onPress={onOpenBuilder}
+            >
+              Open in Builder
+            </Button>
+            <Button
+              mode="text"
+              icon="close-circle-outline"
+              textColor={theme.colors.error}
+              compact
+              onPress={onCancel}
+            >
+              Cancel
+            </Button>
+          </View>
+        </View>
+      </Card.Content>
+    </Card>
+  );
+};
 
 export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
   visible,
@@ -60,6 +200,7 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
   const [isListening, setIsListening] = useState(false);
   const [voiceError, setVoiceError] = useState<string | null>(null);
   const [selectedLocale, setSelectedLocale] = useState<'mr-IN' | 'hi-IN' | 'en-IN'>('mr-IN');
+  const [activeOrderSession, setActiveOrderSession] = useState<ActiveOrderSession | null>(null);
   const [messages, setMessages] = useState<AgentMessage[]>([
     {
       id: 'msg_welcome',
@@ -165,11 +306,16 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
         customers: billing.customers,
         organization: billing.organization,
         connectedPrinter: billing.connectedPrinter,
+        orderSession: activeOrderSession,
         onNavigate: (screen, params) => {
           onDismiss();
           navigation.navigate(screen, params);
         },
       });
+
+      if (response.orderSession !== undefined) {
+        setActiveOrderSession(response.orderSession);
+      }
 
       const assistantMsg: AgentMessage = {
         id: `ai_${Date.now()}`,
@@ -179,17 +325,18 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
         actions: response.actions,
         cardType: response.cardType,
         cardData: response.cardData,
+        suggestedFollowUps: response.suggestedFollowUps,
       };
 
       setMessages((prev) => [...prev, assistantMsg]);
 
       // Check if this is an auto-create & print action (e.g. "create a bill for 1 kg apple")
       const autoPrintAction = response.actions?.find((a) => a.type === 'AUTO_PRINT_PREVIEW');
-      if (autoPrintAction) {
+      if (autoPrintAction && response.cardType !== 'FINAL_BILL_PREVIEW') {
         await handleActionPress(autoPrintAction);
         return;
       }
-    } catch (e) {
+    } catch (_e) {
       const errorMsg: AgentMessage = {
         id: `err_${Date.now()}`,
         sender: 'assistant',
@@ -203,6 +350,28 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
   };
 
   const handleActionPress = async (action: AgentAction) => {
+    if (action.type === 'PROCEED_FOR_BILL') {
+      handleSendMessage('Generate Bill');
+      return;
+    }
+
+    if (action.type === 'ADD_PRODUCT') {
+      handleSendMessage('+ Add Product');
+      return;
+    }
+
+    if (action.type === 'CANCEL_ORDER') {
+      setActiveOrderSession(null);
+      const cancelMsg: AgentMessage = {
+        id: `cancel_${Date.now()}`,
+        sender: 'assistant',
+        text: '❌ **Order cancelled.** Your current cart has been cleared.',
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      };
+      setMessages((prev) => [...prev, cancelMsg]);
+      return;
+    }
+
     if (action.type === 'AUTO_PRINT_PREVIEW') {
       const draft = action.payload;
       if (!draft || !draft.items || draft.items.length === 0) return;
@@ -223,7 +392,7 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
           taxTotal: draft.taxTotal,
           cgstTotal: draft.cgstTotal,
           sgstTotal: draft.sgstTotal,
-          discount: 0,
+          discount: draft.discount || 0,
           grandTotal: draft.grandTotal,
           paymentStatus: draft.paymentStatus || 'Paid',
           paymentMethod: draft.paymentMethod || 'Cash',
@@ -274,7 +443,7 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
           taxTotal: draft.taxTotal,
           cgstTotal: draft.cgstTotal,
           sgstTotal: draft.sgstTotal,
-          discount: 0,
+          discount: draft.discount || 0,
           grandTotal: draft.grandTotal,
           paymentStatus: draft.paymentStatus || 'Paid',
           paymentMethod: draft.paymentMethod || 'Cash',
@@ -365,7 +534,59 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
     }
   };
 
+  const createAndPrintInvoice = async (invoiceData: Invoice, invoiceItems: InvoiceItem[]) => {
+    setIsProcessing(true);
+    try {
+      await billing.createInvoice(invoiceData, invoiceItems);
+
+      const successMsg: AgentMessage = {
+        id: `created_${Date.now()}`,
+        sender: 'assistant',
+        text:
+          `🎉 **Bill #${invoiceData.invoiceNumber} Generated!**\n\n` +
+          `• **Customer**: ${invoiceData.customerId === 'default_customer' ? 'Walk-in Customer' : 'Customer'}\n` +
+          `• **Amount**: ${billing.organization.currency || '₹'}${invoiceData.grandTotal.toFixed(2)}\n` +
+          `• **Payment**: ${invoiceData.paymentStatus === 'Paid' ? '✅ Paid' : '⚠️ Unpaid'} (${invoiceData.paymentMethod})\n\n` +
+          `Opening Print Preview...`,
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        actions: [
+          {
+            id: 'act_print_now',
+            label: `Print Bill #${invoiceData.invoiceNumber}`,
+            type: 'PRINT_INVOICE',
+            payload: { invoiceId: invoiceData.id },
+            icon: 'printer',
+          },
+        ],
+      };
+      setMessages((prev) => [...prev, successMsg]);
+
+      const isReady = await billing.verifyPrinterConnectionOrRedirect(navigation);
+      if (isReady) {
+        onDismiss();
+        navigation.navigate('PrintPreview', {
+          invoiceId: invoiceData.id,
+          invoice: invoiceData,
+          items: invoiceItems,
+        });
+      } else {
+        onDismiss();
+      }
+    } catch (err: any) {
+      console.error('Error creating invoice from AI fast bill:', err);
+      Alert.alert('Billing Error', err?.message || 'Failed to save invoice.');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const openInvoiceBuilder = (params?: any) => {
+    onDismiss();
+    navigation.navigate('Billing', params);
+  };
+
   const handleClearChat = () => {
+    setActiveOrderSession(null);
     setMessages([
       {
         id: 'msg_welcome_reset',
@@ -499,11 +720,46 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
                               backgroundColor:
                                 theme.colors.elevation?.level1 || '#F4F4F6',
                               borderColor: theme.colors.outlineVariant || '#E0E0E0',
+                              maxWidth: msg.cardType === 'FINAL_BILL_PREVIEW' || msg.cardType === 'DRAFT_BILL' ? '96%' : '82%',
                             },
                           ],
                     ]}
                   >
                     {renderFormattedText(msg.text, isUser)}
+
+                    {/* Render Interactive Final Bill Summary Card */}
+                    {(msg.cardType === 'FINAL_BILL_PREVIEW' || msg.cardType === 'DRAFT_BILL') && msg.cardData && (
+                      <FinalBillPreviewCard
+                        data={msg.cardData}
+                        currency={billing.organization.currency || '₹'}
+                        onPrint={() =>
+                          handleActionPress({
+                            id: 'act_print_now',
+                            label: 'Print Bill',
+                            type: 'AUTO_PRINT_PREVIEW',
+                            payload: msg.cardData,
+                          })
+                        }
+                        onOpenBuilder={() =>
+                          openInvoiceBuilder({
+                            prefillProduct: msg.cardData?.items?.[0],
+                            prefillItems: msg.cardData?.items,
+                            customerId: msg.cardData?.customer?.id,
+                            paymentMethod: msg.cardData?.paymentMethod,
+                            paymentStatus: msg.cardData?.paymentStatus,
+                          })
+                        }
+                        onCancel={() =>
+                          handleActionPress({
+                            id: 'act_cancel',
+                            label: 'Cancel Order',
+                            type: 'CANCEL_ORDER',
+                          })
+                        }
+                        isProcessing={isProcessing}
+                      />
+                    )}
+
                     <Text
                       style={[
                         styles.timestamp,
@@ -517,26 +773,78 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
                       {msg.timestamp}
                     </Text>
 
+                    {/* Suggested Follow-up Chips for Assistant Message */}
+                    {msg.suggestedFollowUps && msg.suggestedFollowUps.length > 0 && (
+                      <View style={styles.followUpsContainer}>
+                        {msg.suggestedFollowUps.map((chipText, cIdx) => {
+                          const isProceed =
+                            chipText.toLowerCase().includes('proceed') ||
+                            chipText.toLowerCase().includes('generate') ||
+                            chipText.toLowerCase().includes('confirm');
+                          const isAdd = chipText.toLowerCase().includes('add');
+                          const isCancel = chipText.toLowerCase().includes('cancel');
+
+                          let chipIcon = 'chevron-right';
+                          if (isProceed) chipIcon = 'receipt';
+                          else if (isAdd) chipIcon = 'plus-circle-outline';
+                          else if (isCancel) chipIcon = 'close-circle-outline';
+                          else if (chipText.includes('%') || chipText.toLowerCase().includes('discount')) chipIcon = 'percent';
+
+                          return (
+                            <Chip
+                              key={`msg_${msg.id}_chip_${cIdx}`}
+                              mode={isProceed ? 'flat' : 'outlined'}
+                              icon={chipIcon}
+                              onPress={() => handleSendMessage(chipText)}
+                              style={[
+                                styles.followUpChip,
+                                isProceed && styles.proceedChip,
+                                isAdd && styles.addProductChip,
+                                isCancel && styles.cancelChip,
+                              ]}
+                              textStyle={[
+                                styles.followUpChipText,
+                                isProceed && styles.proceedChipText,
+                                isAdd && styles.addProductChipText,
+                                isCancel && styles.cancelChipText,
+                              ]}
+                            >
+                              {chipText}
+                            </Chip>
+                          );
+                        })}
+                      </View>
+                    )}
+
                     {/* Action Buttons if provided */}
                     {msg.actions && msg.actions.length > 0 && (
                       <View style={styles.actionsContainer}>
                         {msg.actions.map((act) => {
-                          const isConfirm = act.type === 'CONFIRM_DRAFT';
+                          const isConfirm =
+                            act.type === 'CONFIRM_DRAFT' ||
+                            act.type === 'PROCEED_FOR_BILL' ||
+                            act.type === 'AUTO_PRINT_PREVIEW';
+                          const isAdd = act.type === 'ADD_PRODUCT';
+                          const isCancel = act.type === 'CANCEL_ORDER';
+
                           return (
                             <Button
                               key={act.id}
-                              mode={isConfirm ? 'contained' : 'contained-tonal'}
-                              buttonColor={isConfirm ? (theme.colors.success || '#2E7D32') : undefined}
-                              textColor={isConfirm ? '#FFFFFF' : undefined}
-                              icon={act.icon || 'arrow-right'}
+                              mode={isConfirm ? 'contained' : isCancel ? 'text' : isAdd ? 'outlined' : 'contained-tonal'}
+                              buttonColor={isConfirm ? (theme.colors.success || '#2E7D32') : isAdd ? '#E3F2FD' : undefined}
+                              textColor={isConfirm ? '#FFFFFF' : isCancel ? '#D32F2F' : isAdd ? '#1565C0' : undefined}
+                              icon={act.icon || (isConfirm ? 'receipt' : isCancel ? 'close-circle-outline' : 'arrow-right')}
                               onPress={() => handleActionPress(act)}
                               loading={isConfirm && isProcessing}
                               disabled={isProcessing}
-                              style={styles.actionButton}
+                              style={[
+                                styles.actionButton,
+                                isAdd && { borderColor: '#90CAF9', borderWidth: 1.5 },
+                              ]}
                               labelStyle={{
-                                fontSize: 12,
+                                fontSize: 12.5,
                                 marginVertical: 4,
-                                fontWeight: isConfirm ? 'bold' : '500',
+                                fontWeight: isConfirm || isAdd ? 'bold' : '500',
                               }}
                             >
                               {act.label}
@@ -558,18 +866,68 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={styles.quickPromptsScroll}
             >
-              {QUICK_PROMPTS.map((p) => (
-                <Chip
-                  key={p.id}
-                  icon={p.icon}
-                  mode="outlined"
-                  onPress={() => handleSendMessage(p.query)}
-                  style={styles.promptChip}
-                  textStyle={{ fontSize: 12 }}
-                >
-                  {p.title}
-                </Chip>
-              ))}
+              {activeOrderSession ? (
+                // Contextual chips for current order session
+                <>
+                  {activeOrderSession.items.length > 0 && (
+                    <Chip
+                      icon="receipt"
+                      mode="flat"
+                      onPress={() => handleSendMessage('Generate Bill')}
+                      style={[styles.promptChip, styles.proceedChip]}
+                      textStyle={[styles.proceedChipText, { fontSize: 12 }]}
+                    >
+                      Generate Bill ({billing.organization.currency || '₹'}{activeOrderSession.items.reduce((s, it) => s + it.price * it.quantity, 0).toFixed(2)})
+                    </Chip>
+                  )}
+                  <Chip
+                    icon="plus-circle-outline"
+                    mode="outlined"
+                    onPress={() => handleSendMessage('+ Add Product')}
+                    style={[styles.promptChip, styles.addProductChip]}
+                    textStyle={[styles.addProductChipText, { fontSize: 12 }]}
+                  >
+                    + Add Product
+                  </Chip>
+                  {billing.products
+                    .filter((p) => !activeOrderSession.items.some((i) => i.productId === p.id))
+                    .slice(0, 3)
+                    .map((p) => (
+                      <Chip
+                        key={`bar_${p.id}`}
+                        icon="tag-outline"
+                        mode="outlined"
+                        onPress={() => handleSendMessage(`1 ${p.unit || 'pcs'} ${p.name}`)}
+                        style={styles.promptChip}
+                        textStyle={{ fontSize: 12 }}
+                      >
+                        1 {p.unit || 'pcs'} {p.name}
+                      </Chip>
+                    ))}
+                  <Chip
+                    icon="close-circle-outline"
+                    mode="outlined"
+                    onPress={() => handleSendMessage('cancel order')}
+                    style={[styles.promptChip, styles.cancelChip]}
+                    textStyle={[styles.cancelChipText, { fontSize: 12 }]}
+                  >
+                    Cancel Order
+                  </Chip>
+                </>
+              ) : (
+                QUICK_PROMPTS.map((p) => (
+                  <Chip
+                    key={p.id}
+                    icon={p.icon}
+                    mode="outlined"
+                    onPress={() => handleSendMessage(p.query)}
+                    style={styles.promptChip}
+                    textStyle={{ fontSize: 12 }}
+                  >
+                    {p.title}
+                  </Chip>
+                ))
+              )}
             </ScrollView>
           </View>
 
@@ -674,7 +1032,7 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
               )}
 
               <Text style={styles.voiceInstruction}>
-                Say: "1 kg apple udhari var" or tap a sample below:
+                Say: "1 kg apple" or tap a sample below:
               </Text>
               <ScrollView
                 horizontal
@@ -833,6 +1191,46 @@ const styles = StyleSheet.create({
   actionButton: {
     borderRadius: 8,
   },
+  followUpsContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginTop: 8,
+  },
+  followUpChip: {
+    borderRadius: 16,
+    backgroundColor: '#F5F5F5',
+    borderColor: '#E0E0E0',
+    height: 32,
+  },
+  followUpChipText: {
+    fontSize: 11.5,
+    color: '#37474F',
+  },
+  proceedChip: {
+    backgroundColor: '#E8F5E9',
+    borderColor: '#81C784',
+  },
+  proceedChipText: {
+    color: '#2E7D32',
+    fontWeight: '700',
+  },
+  addProductChip: {
+    backgroundColor: '#E3F2FD',
+    borderColor: '#90CAF9',
+  },
+  addProductChipText: {
+    color: '#1565C0',
+    fontWeight: '600',
+  },
+  cancelChip: {
+    backgroundColor: '#FFEBEE',
+    borderColor: '#FFCDD2',
+  },
+  cancelChipText: {
+    color: '#C62828',
+    fontWeight: '600',
+  },
   quickPromptsWrapper: {
     paddingVertical: 8,
     backgroundColor: '#FFFFFF',
@@ -974,5 +1372,19 @@ const styles = StyleSheet.create({
   textInput: {
     flex: 1,
     fontSize: 13.5,
+  },
+  // Final Bill Preview Card Styles
+  finalBillCard: {
+    marginTop: 8,
+    borderRadius: 12,
+    borderColor: '#D0D7DE',
+    backgroundColor: '#FFFFFF',
+    elevation: 2,
+  },
+  finalBillHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 4,
   },
 });

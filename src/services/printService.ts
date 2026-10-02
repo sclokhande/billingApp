@@ -69,7 +69,7 @@ const wrapTextForColumn = (text: string, colWidth: number): string[] => {
 
   for (const word of words) {
     if (!word) continue;
-    
+
     // If the word itself is longer than the column width, break it down
     if (word.length > colWidth) {
       if (currentLine) {
@@ -89,7 +89,7 @@ const wrapTextForColumn = (text: string, colWidth: number): string[] => {
       currentLine += word + ' ';
     }
   }
-  
+
   if (currentLine.trim()) {
     lines.push(currentLine.trim());
   }
@@ -182,32 +182,32 @@ export const formatThermalReceipt = (
     const wrappedAddress = wrapText(orgAddress, width);
     wrappedAddress.forEach((addrLine) => lines.push(centerText(addrLine, width)));
   }
-  
+
   const orgMobile = (org?.mobile || org?.phone || '').trim();
   if (orgMobile) {
     lines.push(centerText(`Ph: ${orgMobile}`, width));
   }
-  
+
   if (org?.showGstOnBill && org?.gstNumber) {
     lines.push(centerText(`GSTIN: ${org.gstNumber}`, width));
   }
-  
+
   lines.push('-'.repeat(width));
 
   // 2. Invoice Meta Info
   lines.push(`Bill No: ${invoice?.invoiceNumber || ''}`);
-  
+
   // Format Date (clean readable format)
   const dateStr = formatInvoiceDateTime(invoice?.date);
   lines.push(`Date: ${dateStr}`);
-  
+
   if (customer) {
     lines.push(`Cust: ${customer.name || 'Walk-in'}`);
     if (customer.phone && customer.phone !== '0000000000') {
       lines.push(`Ph:   ${customer.phone}`);
     }
   }
-  
+
   lines.push('='.repeat(width));
 
   // 3. Item List Header
@@ -232,7 +232,14 @@ export const formatThermalReceipt = (
 
       const priceNum = typeof item.price === 'number' ? item.price : parseFloat(item.price as any) || 0;
       const qtyNum = typeof item.quantity === 'number' ? item.quantity : parseFloat(item.quantity as any) || 0;
-      const totalNum = typeof item.total === 'number' ? item.total : parseFloat(item.total as any) || (priceNum * qtyNum);
+      const lineSubtotal = priceNum * qtyNum;
+      const isGstActive = Boolean(org?.showGstOnBill && org?.gstNumber);
+
+      // In the receipt item table (Item Name | Qty | Rate | Total):
+      // The row's Total is Rate * Qty. When GST is disabled, tax is strictly 0 and row total equals lineSubtotal.
+      const totalNum = !isGstActive
+        ? lineSubtotal
+        : lineSubtotal;
 
       const rateStr = priceNum.toFixed(2);
       const totalStr = totalNum.toFixed(2);
@@ -253,7 +260,7 @@ export const formatThermalReceipt = (
   const grandTotalNum = typeof invoice?.grandTotal === 'number' ? invoice.grandTotal : parseFloat(invoice?.grandTotal as any) || 0;
 
   lines.push(formatRow('Subtotal:', subtotalNum.toFixed(2), width));
-  
+
   if (org?.showGstOnBill && org?.gstNumber) {
     if (cgstNum > 0) {
       lines.push(formatRow('CGST (Central):', cgstNum.toFixed(2), width));
@@ -268,7 +275,7 @@ export const formatThermalReceipt = (
   }
 
   lines.push('='.repeat(width));
-  
+
   // Grand Total - GRAND TOTAL: on line 1, Rs. <value> on line 2
   lines.push('GRAND TOTAL:');
   lines.push(`${currency} ${grandTotalNum.toFixed(2)}`);
@@ -286,9 +293,16 @@ export const formatThermalReceipt = (
   } else {
     lines.push(centerText('Thank You Visit again', width));
   }
-  
-  lines.push('');
-  lines.push(centerText('print by Parchiwala', width));
+
+  // Bottom Footer Note / Branding (e.g. 'Print by Parchiwala')
+  const showFooterNote = org?.showFooterTextOnBill !== false;
+  if (showFooterNote) {
+    const customFooter = (org?.footerText !== undefined && org.footerText.trim())
+      ? org.footerText.trim()
+      : 'Print by Parchiwala';
+    const wrappedFooter = wrapText(customFooter, width);
+    wrappedFooter.forEach((fLine) => lines.push(centerText(fLine, width)));
+  }
   lines.push(''); // Reduced trailing lines to prevent too long paper feed
 
   return lines.join('\n');

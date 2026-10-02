@@ -59,10 +59,20 @@ export interface DraftOrderData {
   paymentStatus: 'Paid' | 'Unpaid';
 }
 
+export interface ActiveOrderSession {
+  step: 'AWAITING_PRODUCT' | 'AWAITING_MORE_PRODUCTS' | 'AWAITING_DISCOUNT' | 'AWAITING_CONFIRMATION';
+  items: DraftOrderItem[];
+  discountPct?: number;
+  discountAmount?: number;
+  customerId?: string;
+  paymentMethod?: string;
+  paymentStatus?: 'Paid' | 'Unpaid';
+}
+
 export interface AgentAction {
   id: string;
   label: string;
-  type: 'NAVIGATE' | 'VIEW_INVOICE' | 'PRINT_INVOICE' | 'OPEN_BILLING' | 'CONFIRM_DRAFT' | 'AUTO_PRINT_PREVIEW';
+  type: 'NAVIGATE' | 'VIEW_INVOICE' | 'PRINT_INVOICE' | 'OPEN_BILLING' | 'CONFIRM_DRAFT' | 'AUTO_PRINT_PREVIEW' | 'CANCEL_ORDER' | 'CONFIRM_ORDER' | 'PROCEED_FOR_BILL' | 'ADD_PRODUCT';
   payload?: any;
   icon?: string;
 }
@@ -73,16 +83,18 @@ export interface AgentMessage {
   text: string;
   timestamp: string;
   actions?: AgentAction[];
-  cardType?: 'INVOICE_SUMMARY' | 'LOW_STOCK_LIST' | 'DRAFT_BILL' | 'SALES_STATS' | 'PRODUCT_INFO';
+  cardType?: 'INVOICE_SUMMARY' | 'LOW_STOCK_LIST' | 'DRAFT_BILL' | 'SALES_STATS' | 'PRODUCT_INFO' | 'FAST_BILL_BUILDER' | 'FINAL_BILL_PREVIEW';
   cardData?: any;
+  suggestedFollowUps?: string[];
 }
 
 export interface AgentResponse {
   text: string;
   actions?: AgentAction[];
-  cardType?: 'INVOICE_SUMMARY' | 'LOW_STOCK_LIST' | 'DRAFT_BILL' | 'SALES_STATS' | 'PRODUCT_INFO';
+  cardType?: 'INVOICE_SUMMARY' | 'LOW_STOCK_LIST' | 'DRAFT_BILL' | 'SALES_STATS' | 'PRODUCT_INFO' | 'FAST_BILL_BUILDER' | 'FINAL_BILL_PREVIEW';
   cardData?: any;
   suggestedFollowUps?: string[];
+  orderSession?: ActiveOrderSession | null;
 }
 
 export interface SuggestedPrompt {

@@ -1,14 +1,38 @@
 import React, { useState } from 'react';
 import { StyleSheet, View, ScrollView, Alert, NativeModules, TurboModuleRegistry } from 'react-native';
-import { Text, Card, Button, Divider, useTheme, Avatar, IconButton, Portal, Dialog, TextInput, Snackbar } from 'react-native-paper';
+import {
+  Text,
+  Card,
+  Button,
+  Divider,
+  useTheme,
+  Avatar,
+  IconButton,
+  Portal,
+  Dialog,
+  TextInput,
+  Snackbar,
+  SegmentedButtons,
+  Chip,
+} from 'react-native-paper';
 import { useBilling } from '../context/BillingContext';
 import { APP_CONFIG } from '../config/app_config';
+import {
+  executeDataExport,
+  ExportTarget,
+  InvoiceGstFilter,
+  ExportFormat,
+} from '../services/exportService';
 
 export const SecurityBackupScreen = ({ navigation }: any) => {
   const theme = useTheme() as any;
   const {
     organization,
     updateOrgProfile,
+    products,
+    customers,
+    invoices,
+    getAllInvoiceItems,
     exportData,
     importData,
     clearAllData,
@@ -36,11 +60,15 @@ export const SecurityBackupScreen = ({ navigation }: any) => {
   const [masterAdminInput, setMasterAdminInput] = useState('');
   const [showMasterAdminSecret, setShowMasterAdminSecret] = useState(false);
 
-  // Export / Import states
+  // Export states
   const [exportDialogVisible, setExportDialogVisible] = useState(false);
+  const [exportTarget, setExportTarget] = useState<ExportTarget>('invoices');
+  const [invoiceGstFilter, setInvoiceGstFilter] = useState<InvoiceGstFilter>('all');
+  const [exportFormat, setExportFormat] = useState<ExportFormat>('csv');
+  const [isExporting, setIsExporting] = useState(false);
+
+  // Import states
   const [importDialogVisible, setImportDialogVisible] = useState(false);
-  const [exportJson, setExportJson] = useState('');
-  const [exportFilename, setExportFilename] = useState('');
   const [importJson, setImportJson] = useState('');
   const [selectedFile, setSelectedFile] = useState<{
     name: string;
@@ -171,38 +199,89 @@ export const SecurityBackupScreen = ({ navigation }: any) => {
     }
   };
 
-  const handleExport = async () => {
-    try {
-      const { jsonStr, filename } = await exportData();
-      setExportJson(jsonStr);
-      setExportFilename(filename);
-      setExportDialogVisible(true);
-    } catch (e) {
-      Alert.alert('Error', 'Failed to export database.');
-    }
+  const totalInvoicesCount = (invoices || []).length;
+  const gstInvoicesCount = (invoices || []).filter((inv) => {
+    const tax = typeof inv.taxTotal === 'number' ? inv.taxTotal : parseFloat(inv.taxTotal as any) || 0;
+    const cgst = typeof inv.cgstTotal === 'number' ? inv.cgstTotal : parseFloat(inv.cgstTotal as any) || 0;
+    const sgst = typeof inv.sgstTotal === 'number' ? inv.sgstTotal : parseFloat(inv.sgstTotal as any) || 0;
+    return tax > 0 || (cgst + sgst) > 0;
+  }).length;
+  const nonGstInvoicesCount = totalInvoicesCount - gstInvoicesCount;
+
+  const currentExportCount =
+    exportTarget === 'invoices'
+      ? invoiceGstFilter === 'all'
+        ? totalInvoicesCount
+        : invoiceGstFilter === 'gst'
+        ? gstInvoicesCount
+        : nonGstInvoicesCount
+      : exportTarget === 'products'
+      ? (products || []).length
+      : exportTarget === 'customers'
+      ? (customers || []).length
+      : totalInvoicesCount + (products || []).length + (customers || []).length;
+
+  const handleExport = () => {
+    setExportDialogVisible(true);
   };
 
-  const handleShareBackup = async () => {
-    try {
-      const filename = exportFilename || 'parchiwala_backup.json';
-      const RNFS = require('react-native-fs');
-      const filePath = `${RNFS.CachesDirectoryPath}/${filename}`;
+  const handleExecuteExportAndShare = async () => {
+    if (isDemoMode) {
+      Alert.alert('Demo Version', APP_CONFIG.DEMO_MESSAGES.EXPORT_IMPORT_DISABLED);
+      return;
+    }
 
-      await RNFS.writeFile(filePath, exportJson, 'utf8');
+    try {
+      setIsExporting(true);
+
+      // Fetch line items if exporting invoices or full backup
+      let items: any[] = [];
+      if (exportTarget === 'invoices' || exportTarget === 'full') {
+        try {
+          items = await getAllInvoiceItems();
+        } catch (itemErr) {
+          console.warn('[Export] Error getting invoice items, falling back to empty list:', itemErr);
+          items = [];
+        }
+      }
+
+      const result = executeDataExport(
+        {
+          target: exportTarget,
+          gstFilter: exportTarget === 'invoices' ? invoiceGstFilter : undefined,
+          format: exportTarget === 'full' ? 'json' : exportFormat,
+        },
+        {
+          invoices: invoices || [],
+          invoiceItems: items,
+          products: products || [],
+          customers: customers || [],
+          organization,
+        }
+      );
+
+      const RNFS = require('react-native-fs');
+      const filePath = `${RNFS.CachesDirectoryPath}/${result.filename}`;
+      await RNFS.writeFile(filePath, result.content, 'utf8');
 
       const RNShare = require('react-native-share').default;
       await RNShare.open({
         url: `file://${filePath}`,
-        type: 'application/json',
-        filename: filename,
-        title: filename,
+        type: result.mimeType,
+        filename: result.filename,
+        title: result.filename,
         failOnCancel: false,
       });
+
+      setExportDialogVisible(false);
+      showToast(`Exported ${result.recordCount} records (${result.filename}) successfully!`, 'success');
     } catch (e: any) {
-      console.warn('[BackupShare] File share error:', e);
+      console.warn('[Export] Share/Save error:', e);
       if (e && e.message && !e.message.includes('User did not share') && !e.message.includes('CANCELLED')) {
-        Alert.alert('Error', 'Failed to share backup JSON file.');
+        Alert.alert('Export Error', e?.message || 'Failed to export and share file.');
       }
+    } finally {
+      setIsExporting(false);
     }
   };
 
@@ -303,7 +382,7 @@ export const SecurityBackupScreen = ({ navigation }: any) => {
       [
         { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Restore Backup',
+          text: 'Import Data',
           style: 'destructive',
           onPress: async () => {
             try {
@@ -311,7 +390,7 @@ export const SecurityBackupScreen = ({ navigation }: any) => {
               setImportDialogVisible(false);
               setImportJson('');
               setSelectedFile(null);
-              showToast('Database restored successfully from JSON file!', 'success');
+              showToast('Database imported successfully from JSON file!', 'success');
             } catch (e) {
               Alert.alert('Error', 'Failed to import backup file.');
             }
@@ -367,7 +446,7 @@ export const SecurityBackupScreen = ({ navigation }: any) => {
               <View style={{ marginLeft: 12, flex: 1 }}>
                 <Text variant="titleMedium" style={styles.boldText}>Security & Data Management</Text>
                 <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
-                  Configure Security PIN, Export/Restore database backups, and clean up database records.
+                  Configure Security PIN, Export/Import database backups, and clean up database records.
                 </Text>
               </View>
             </View>
@@ -375,7 +454,7 @@ export const SecurityBackupScreen = ({ navigation }: any) => {
               <View style={{ backgroundColor: '#FFF3E0', borderRadius: 8, padding: 10, marginTop: 4, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                 <Avatar.Icon size={24} icon="information-outline" style={{ backgroundColor: '#FFE0B2' }} color="#E65100" />
                 <Text style={{ fontSize: 12, color: '#E65100', flex: 1, fontWeight: '500' }}>
-                  Demo Version: Database Export and Restore features are disabled in this build.
+                  Demo Version: Database Export and Import features are disabled in this build.
                 </Text>
               </View>
             )}
@@ -427,12 +506,12 @@ export const SecurityBackupScreen = ({ navigation }: any) => {
           </Card.Content>
         </Card>
 
-        {/* Section 2: Database Backup & Restore */}
+        {/* Section 2: Backup & Import Data */}
         <Card style={styles.card} mode="outlined">
           <Card.Content style={{ gap: 12 }}>
-            <Text variant="titleMedium" style={styles.boldText}>Database Backup & Restore</Text>
+            <Text variant="titleMedium" style={styles.boldText}>Backup & Import Data</Text>
             <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
-              Export a complete JSON backup of your products, customers, and invoices to keep your data safe, or restore from a previous JSON backup file.
+              Export Invoices (GST / Non-GST / All), Products, and Customers in CSV or JSON format, or create and import complete database backups.
             </Text>
             <Divider style={{ marginVertical: 4 }} />
             <View style={{ flexDirection: 'row', gap: 10 }}>
@@ -443,7 +522,7 @@ export const SecurityBackupScreen = ({ navigation }: any) => {
                 disabled={isDemoMode}
                 style={{ flex: 1 }}
               >
-                {isDemoMode ? 'Export Disabled (Demo)' : 'Export Backup'}
+                {isDemoMode ? 'Export Disabled (Demo)' : 'Export Data (CSV / JSON)'}
               </Button>
               <Button
                 mode="outlined"
@@ -452,7 +531,7 @@ export const SecurityBackupScreen = ({ navigation }: any) => {
                 disabled={isDemoMode}
                 style={{ flex: 1 }}
               >
-                {isDemoMode ? 'Restore Disabled (Demo)' : 'Restore Backup'}
+                {isDemoMode ? 'Import Disabled (Demo)' : 'Import Data'}
               </Button>
             </View>
           </Card.Content>
@@ -621,25 +700,170 @@ export const SecurityBackupScreen = ({ navigation }: any) => {
           </Dialog.Actions>
         </Dialog>
 
-        {/* Export Dialog */}
-        <Dialog visible={exportDialogVisible} onDismiss={() => setExportDialogVisible(false)} style={styles.dialog}>
-          <Dialog.Title>JSON Backup Created</Dialog.Title>
-          <Dialog.Content style={{ gap: 12 }}>
-            <Text variant="bodyMedium">
-              Your database backup file ({exportFilename}) has been generated successfully.
-            </Text>
-            <Button mode="contained" icon="share-variant" onPress={handleShareBackup}>
-              Share & Save JSON Backup
+        {/* Export Data Dialog */}
+        <Dialog
+          visible={exportDialogVisible}
+          onDismiss={() => {
+            if (!isExporting) setExportDialogVisible(false);
+          }}
+          style={styles.dialog}
+        >
+          <Dialog.Title style={{ fontSize: 18, fontWeight: 'bold' }}>
+            Export Data
+          </Dialog.Title>
+          <Dialog.ScrollArea style={{ maxHeight: 440, paddingHorizontal: 0 }}>
+            <ScrollView contentContainerStyle={{ paddingHorizontal: 20, paddingVertical: 10, gap: 14 }}>
+              
+              {/* Step 1: Select Target */}
+              <View style={{ gap: 6 }}>
+                <Text variant="labelMedium" style={{ fontWeight: 'bold', color: theme.colors.primary }}>
+                  1. SELECT DATA TO EXPORT
+                </Text>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                  <Chip
+                    selected={exportTarget === 'invoices'}
+                    onPress={() => setExportTarget('invoices')}
+                    icon="receipt"
+                    style={{ backgroundColor: exportTarget === 'invoices' ? theme.colors.primaryContainer : theme.colors.surfaceVariant }}
+                    textStyle={{ fontWeight: exportTarget === 'invoices' ? 'bold' : 'normal', color: exportTarget === 'invoices' ? theme.colors.primary : theme.colors.onSurfaceVariant }}
+                  >
+                    Invoices ({totalInvoicesCount})
+                  </Chip>
+                  <Chip
+                    selected={exportTarget === 'products'}
+                    onPress={() => setExportTarget('products')}
+                    icon="package-variant-closed"
+                    style={{ backgroundColor: exportTarget === 'products' ? theme.colors.primaryContainer : theme.colors.surfaceVariant }}
+                    textStyle={{ fontWeight: exportTarget === 'products' ? 'bold' : 'normal', color: exportTarget === 'products' ? theme.colors.primary : theme.colors.onSurfaceVariant }}
+                  >
+                    Products ({products?.length || 0})
+                  </Chip>
+                  <Chip
+                    selected={exportTarget === 'customers'}
+                    onPress={() => setExportTarget('customers')}
+                    icon="account-group"
+                    style={{ backgroundColor: exportTarget === 'customers' ? theme.colors.primaryContainer : theme.colors.surfaceVariant }}
+                    textStyle={{ fontWeight: exportTarget === 'customers' ? 'bold' : 'normal', color: exportTarget === 'customers' ? theme.colors.primary : theme.colors.onSurfaceVariant }}
+                  >
+                    Customers ({customers?.length || 0})
+                  </Chip>
+                  <Chip
+                    selected={exportTarget === 'full'}
+                    onPress={() => setExportTarget('full')}
+                    icon="database-export"
+                    style={{ backgroundColor: exportTarget === 'full' ? theme.colors.primaryContainer : theme.colors.surfaceVariant }}
+                    textStyle={{ fontWeight: exportTarget === 'full' ? 'bold' : 'normal', color: exportTarget === 'full' ? theme.colors.primary : theme.colors.onSurfaceVariant }}
+                  >
+                    Full Backup
+                  </Chip>
+                </View>
+              </View>
+
+              {/* Step 2: Invoices GST Filter (Only when Target is Invoices) */}
+              {exportTarget === 'invoices' && (
+                <View style={{ gap: 6 }}>
+                  <Text variant="labelMedium" style={{ fontWeight: 'bold', color: theme.colors.primary }}>
+                    2. FILTER INVOICES (GST / NON-GST)
+                  </Text>
+                  <SegmentedButtons
+                    value={invoiceGstFilter}
+                    onValueChange={(val) => setInvoiceGstFilter(val as InvoiceGstFilter)}
+                    buttons={[
+                      {
+                        value: 'all',
+                        label: `All (${totalInvoicesCount})`,
+                      },
+                      {
+                        value: 'gst',
+                        label: `GST (${gstInvoicesCount})`,
+                      },
+                      {
+                        value: 'nongst',
+                        label: `Non-GST (${nonGstInvoicesCount})`,
+                      },
+                    ]}
+                  />
+                </View>
+              )}
+
+              {/* Step 3: Format Selection (CSV or JSON) */}
+              <View style={{ gap: 6 }}>
+                <Text variant="labelMedium" style={{ fontWeight: 'bold', color: theme.colors.primary }}>
+                  {exportTarget === 'invoices' ? '3. CHOOSE FILE FORMAT' : '2. CHOOSE FILE FORMAT'}
+                </Text>
+                {exportTarget === 'full' ? (
+                  <View style={{ backgroundColor: theme.colors.surfaceVariant, padding: 10, borderRadius: 8 }}>
+                    <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
+                      Full database backup exports all organization profile, items, products, customers, and invoice records as structured JSON for complete data backup & restore compatibility.
+                    </Text>
+                  </View>
+                ) : (
+                  <SegmentedButtons
+                    value={exportFormat}
+                    onValueChange={(val) => setExportFormat(val as ExportFormat)}
+                    buttons={[
+                      {
+                        value: 'csv',
+                        label: 'CSV (.csv)',
+                        icon: 'file-delimited',
+                      },
+                      {
+                        value: 'json',
+                        label: 'JSON (.json)',
+                        icon: 'code-json',
+                      },
+                    ]}
+                  />
+                )}
+              </View>
+
+              {/* Summary Card */}
+              <Card style={{ backgroundColor: theme.colors.primaryContainer, borderRadius: 10 }}>
+                <Card.Content style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 10, paddingHorizontal: 12, gap: 12 }}>
+                  <Avatar.Icon
+                    size={38}
+                    icon={exportFormat === 'csv' && exportTarget !== 'full' ? 'file-delimited' : 'code-json'}
+                    style={{ backgroundColor: theme.colors.primary }}
+                    color="#FFFFFF"
+                  />
+                  <View style={{ flex: 1 }}>
+                    <Text variant="titleSmall" style={{ fontWeight: 'bold', color: theme.colors.onPrimaryContainer }}>
+                      {exportTarget === 'invoices'
+                        ? `Invoices (${invoiceGstFilter === 'all' ? 'All' : invoiceGstFilter === 'gst' ? 'GST Only' : 'Non-GST Only'})`
+                        : exportTarget === 'products'
+                        ? 'Products Catalog'
+                        : exportTarget === 'customers'
+                        ? 'Customers Directory'
+                        : 'Full Database Backup'}
+                    </Text>
+                    <Text variant="bodySmall" style={{ color: theme.colors.onPrimaryContainer, opacity: 0.85 }}>
+                      {currentExportCount} {currentExportCount === 1 ? 'record' : 'records'} ready to export as {exportTarget === 'full' ? 'JSON' : exportFormat.toUpperCase()}
+                    </Text>
+                  </View>
+                </Card.Content>
+              </Card>
+
+            </ScrollView>
+          </Dialog.ScrollArea>
+          <Dialog.Actions style={{ paddingHorizontal: 16, paddingBottom: 12 }}>
+            <Button onPress={() => setExportDialogVisible(false)} disabled={isExporting}>
+              Cancel
             </Button>
-          </Dialog.Content>
-          <Dialog.Actions>
-            <Button onPress={() => setExportDialogVisible(false)}>Close</Button>
+            <Button
+              mode="contained"
+              icon="share-variant"
+              loading={isExporting}
+              disabled={isExporting}
+              onPress={handleExecuteExportAndShare}
+            >
+              Export & Share File
+            </Button>
           </Dialog.Actions>
         </Dialog>
 
         {/* Import Dialog */}
         <Dialog visible={importDialogVisible} onDismiss={() => setImportDialogVisible(false)} style={styles.dialog}>
-          <Dialog.Title>Restore Database Backup</Dialog.Title>
+          <Dialog.Title>Import Data</Dialog.Title>
           <Dialog.Content style={{ gap: 12 }}>
             <Button mode="contained" icon="file-document-outline" onPress={handlePickDocument}>
               Select JSON Backup File
@@ -666,7 +890,7 @@ export const SecurityBackupScreen = ({ navigation }: any) => {
           <Dialog.Actions>
             <Button onPress={() => setImportDialogVisible(false)}>Cancel</Button>
             <Button mode="contained" onPress={handleImportSubmit} disabled={!importJson.trim()}>
-              Restore Database
+              Import Data
             </Button>
           </Dialog.Actions>
         </Dialog>

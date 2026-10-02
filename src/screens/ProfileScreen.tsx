@@ -14,6 +14,7 @@ import {
   Button,
   Card,
   Checkbox,
+  Switch,
   useTheme,
   Snackbar,
   Divider,
@@ -94,6 +95,8 @@ export const ProfileScreen = ({ navigation, route }: any) => {
   const [showGstOnBill, setShowGstOnBill] = useState(false);
   const [currency, setCurrency] = useState('Rs.');
   const [slogan, setSlogan] = useState('Thank You Visit again');
+  const [showFooterTextOnBill, setShowFooterTextOnBill] = useState(true);
+  const FIXED_FOOTER_TEXT = 'Print by Parchiwala';
   const [printWidth, setPrintWidth] = useState<'58mm' | '80mm'>('58mm');
   const [isSaving, setIsSaving] = useState(false);
 
@@ -119,6 +122,7 @@ export const ProfileScreen = ({ navigation, route }: any) => {
       setShowGstOnBill(!!organization.showGstOnBill);
       setCurrency(organization.currency || 'Rs.');
       setSlogan(organization.slogan || 'Thank You Visit again');
+      setShowFooterTextOnBill(organization.showFooterTextOnBill !== false);
       setPrintWidth((organization.printWidth as '58mm' | '80mm') || '58mm');
     }
   }, [organization]);
@@ -187,6 +191,8 @@ export const ProfileScreen = ({ navigation, route }: any) => {
         slogan: slogan.trim(),
         printWidth,
         securityPin: organization.securityPin || '1234',
+        showFooterTextOnBill,
+        footerText: FIXED_FOOTER_TEXT,
       });
 
       showToast('Store settings saved successfully!', 'success');
@@ -456,6 +462,65 @@ export const ProfileScreen = ({ navigation, route }: any) => {
             Printed at the bottom of thermal receipts. Supports multiline text.
           </Text>
 
+          {/* Footer Note / Branding Toggle */}
+          <Divider style={{ marginVertical: 14 }} />
+
+          <View style={{ gap: 8 }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <View style={{ flex: 1, marginRight: 12 }}>
+                <Text variant="bodyMedium" style={styles.boldText}>
+                  Display Footer on Receipt
+                </Text>
+                <Text variant="bodySmall" style={{ color: theme.colors.outline, marginTop: 2 }}>
+                  Show or hide the bottom branding footer line on thermal bills
+                </Text>
+              </View>
+              <Switch
+                value={showFooterTextOnBill}
+                onValueChange={(val) => {
+                  if (!isDemoMode) setShowFooterTextOnBill(val);
+                }}
+                disabled={isDemoMode}
+                color={theme.colors.primary}
+              />
+            </View>
+
+            {/* Fixed Label Display */}
+            <View
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                backgroundColor: showFooterTextOnBill ? theme.colors.primaryContainer + '30' : '#F1F5F9',
+                paddingVertical: 8,
+                paddingHorizontal: 12,
+                borderRadius: 8,
+                borderWidth: 1,
+                borderColor: showFooterTextOnBill ? theme.colors.primary + '40' : '#E2E8F0',
+                gap: 8,
+              }}
+            >
+              <MaterialCommunityIcons
+                name="label-outline"
+                size={16}
+                color={showFooterTextOnBill ? theme.colors.primary : '#94A3B8'}
+              />
+              <Text style={{ fontSize: 13, color: '#64748B', fontWeight: '500' }}>
+                Footer Text:{' '}
+              </Text>
+              <Text
+                style={{
+                  fontSize: 13,
+                  fontWeight: '700',
+                  color: showFooterTextOnBill ? theme.colors.primary : '#94A3B8',
+                }}
+              >
+                "{FIXED_FOOTER_TEXT}"
+              </Text>
+            </View>
+          </View>
+
+          <Divider style={{ marginVertical: 14 }} />
+
           <View style={{ marginTop: 4 }}>
             <Text variant="bodyMedium" style={styles.boldText}>
               Receipt Paper Width
@@ -536,9 +601,11 @@ export const ProfileScreen = ({ navigation, route }: any) => {
               <Text style={styles.receiptPaperSlogan}>
                 {slogan.trim() || 'Thank You Visit again'}
               </Text>
-              <Text style={styles.receiptPaperPowered}>
-                Powered by Parchiwala POS
-              </Text>
+              {showFooterTextOnBill && (
+                <Text style={styles.receiptPaperPowered}>
+                  {FIXED_FOOTER_TEXT}
+                </Text>
+              )}
             </View>
           </View>
         </Card.Content>
@@ -847,7 +914,7 @@ export const ProfileScreen = ({ navigation, route }: any) => {
             <View style={styles.securityBulletItem}>
               <MaterialCommunityIcons name="lock-check" size={18} color={theme.colors.primary} />
               <Text style={styles.securityBulletText}>
-                <Text style={{ fontWeight: 'bold' }}>Security PIN Protection:</Text> Prevents unauthorized backup export, database restore, or record wipe.
+                <Text style={{ fontWeight: 'bold' }}>Security PIN Protection:</Text> Prevents unauthorized backup export, data import, or record wipe.
               </Text>
             </View>
             <View style={styles.securityBulletItem}>

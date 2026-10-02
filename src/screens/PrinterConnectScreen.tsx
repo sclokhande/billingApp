@@ -249,9 +249,6 @@ export const PrinterConnectScreen = ({ navigation }: any) => {
                 <Text variant="titleMedium" style={[styles.boldText, { fontSize: 16 }]}>
                   {displayPrinterName}
                 </Text>
-                <Text variant="bodySmall" style={{ color: theme.colors.outline, marginTop: 2 }}>
-                  MAC Address: {displayPrinterAddress}
-                </Text>
 
                 {/* Connection Status Badge */}
                 <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 8 }}>
