@@ -9,6 +9,7 @@ import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityI
 // Import Screens
 import { DashboardScreen } from '../screens/DashboardScreen';
 import { InvoiceBuilderScreen } from '../screens/InvoiceBuilderScreen';
+import { InvoiceHistoryScreen } from '../screens/InvoiceHistoryScreen';
 import { InvoiceDetailScreen } from '../screens/InvoiceDetailScreen';
 import { PrintPreviewScreen } from '../screens/PrintPreviewScreen';
 import { ProductsScreen } from '../screens/ProductsScreen';
@@ -164,11 +165,11 @@ export const AppNavigator = () => {
         options={{ headerShown: false }}
       />
 
-      {/* 48-Hour Printer Security Lock Screen */}
+      {/* Terminal Security Lock Screen (Optional Manual View) */}
       <Stack.Screen
         name="PrinterLock"
         component={PrinterLockScreen}
-        options={{ headerShown: false, gestureEnabled: false }}
+        options={{ headerShown: false, gestureEnabled: true }}
       />
 
       {/* Main Bottom Tabs */}
@@ -179,6 +180,14 @@ export const AppNavigator = () => {
       />
       
       {/* Detail Screens */}
+      <Stack.Screen
+        name="InvoiceHistory"
+        component={InvoiceHistoryScreen}
+        options={{
+          title: 'All Invoices',
+          headerBackTitle: 'Back',
+        }}
+      />
       <Stack.Screen
         name="InvoiceDetail"
         component={InvoiceDetailScreen}

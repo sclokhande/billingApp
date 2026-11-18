@@ -13,6 +13,11 @@ export interface Organization {
   securityPin?: string;
   showFooterTextOnBill?: boolean;
   footerText?: string;
+  logoBase64?: string;
+  showLogoOnBill?: boolean;
+  upiId?: string;
+  upiPayeeName?: string;
+  showUpiQrOnBill?: boolean;
 }
 
 export interface Product {

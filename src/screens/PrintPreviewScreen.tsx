@@ -1,16 +1,23 @@
-import React, { useState, useEffect } from 'react';
-import { StyleSheet, View, ScrollView, Alert, Platform, useWindowDimensions } from 'react-native';
+import React, { useState, useEffect, useMemo } from 'react';
+import { StyleSheet, View, ScrollView, Alert, Platform, useWindowDimensions, Image } from 'react-native';
 import { Text, Button, Card, Portal, Dialog, ActivityIndicator, useTheme } from 'react-native-paper';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { getInvoiceById, getInvoiceItems } from '../db/operations';
-import { formatThermalReceipt } from '../services/printService';
+import { formatThermalReceipt, wrapText } from '../services/printService';
 import { useBilling } from '../context/BillingContext';
 import { InvoiceItem } from '../db/types';
+import {
+  buildUpiPaymentUri,
+  getQrMatrix,
+  convertQrMatrixToEscPosRaster,
+  convertImageBase64ToEscPosRaster,
+  uint8ArrayToBase64,
+} from '../utils/receiptBrandingService';
 
 export const PrintPreviewScreen = ({ route, navigation }: any) => {
   const { invoiceId, invoice: paramInvoice, items: paramItems } = route.params || {};
   const theme = useTheme() as any;
-  const { organization, customers, connectedPrinter, printReceipt, isDemoMode } = useBilling();
+  const { organization, customers, connectedPrinter, printReceipt, printReceiptAsImage } = useBilling();
   const { width: screenWidth } = useWindowDimensions();
   const insets = useSafeAreaInsets();
 
@@ -21,6 +28,21 @@ export const PrintPreviewScreen = ({ route, navigation }: any) => {
 
   // Print simulation states
   const [printStatus, setPrintStatus] = useState<'idle' | 'connecting' | 'printing' | 'success'>('idle');
+
+  const upiUri = useMemo(() => {
+    if (!organization?.showUpiQrOnBill || !organization?.upiId || !invoice) return '';
+    return buildUpiPaymentUri({
+      upiId: organization.upiId,
+      payeeName: organization.upiPayeeName || organization.name,
+      amount: invoice.grandTotal || 0,
+      invoiceNumber: invoice.invoiceNumber,
+    });
+  }, [organization?.showUpiQrOnBill, organization?.upiId, organization?.upiPayeeName, organization?.name, invoice]);
+
+  const qrMatrix = useMemo(() => {
+    if (!upiUri) return [];
+    return getQrMatrix(upiUri);
+  }, [upiUri]);
 
   const fetchDetails = async () => {
     try {
@@ -58,7 +80,62 @@ export const PrintPreviewScreen = ({ route, navigation }: any) => {
 
   const handlePrint = async () => {
     try {
-      const success = await printReceipt(receiptText, navigation);
+      setPrintStatus('printing');
+      const is80mm = organization.printWidth === '80mm';
+      const paperDots = is80mm ? 576 : 384;
+      const width = is80mm ? 48 : 32;
+      const orgName = (organization?.name || 'STORE').toUpperCase();
+      const orgNameLines = wrapText(orgName, width);
+      const orgTitleLineCount = Math.max(1, orgNameLines.length);
+
+      let logoRasterBase64 = '';
+      if (organization.showLogoOnBill && organization.logoBase64) {
+        logoRasterBase64 = await convertImageBase64ToEscPosRaster(organization.logoBase64, paperDots);
+      }
+
+      let qrRasterBase64 = '';
+      if (organization.showUpiQrOnBill && organization.upiId && qrMatrix.length > 0) {
+        const qrBytes = convertQrMatrixToEscPosRaster(qrMatrix, paperDots);
+        qrRasterBase64 = uint8ArrayToBase64(qrBytes);
+      }
+
+      const success = await printReceipt(receiptText, navigation, {
+        logoRasterBase64,
+        qrRasterBase64,
+        titleLineCount: orgTitleLineCount,
+      });
+
+      if (success) {
+        setPrintStatus('success');
+      } else {
+        setPrintStatus('idle');
+      }
+    } catch (e) {
+      setPrintStatus('idle');
+    }
+  };
+
+  const handlePrintAsImage = async () => {
+    try {
+      setPrintStatus('printing');
+      const is80mm = organization.printWidth === '80mm';
+      const paperDots = is80mm ? 576 : 384;
+      const width = is80mm ? 48 : 32;
+      const orgName = (organization?.name || 'STORE').toUpperCase();
+      const orgNameLines = wrapText(orgName, width);
+      const orgTitleLineCount = Math.max(1, orgNameLines.length);
+
+      let logoRasterBase64 = '';
+      if (organization.showLogoOnBill && organization.logoBase64) {
+        logoRasterBase64 = await convertImageBase64ToEscPosRaster(organization.logoBase64, paperDots);
+      }
+
+      const success = await printReceiptAsImage(receiptText, navigation, {
+        logoRasterBase64,
+        qrMatrix: organization.showUpiQrOnBill && organization.upiId && qrMatrix.length > 0 ? qrMatrix : undefined,
+        titleLineCount: orgTitleLineCount,
+      });
+
       if (success) {
         setPrintStatus('success');
       } else {
@@ -98,9 +175,14 @@ export const PrintPreviewScreen = ({ route, navigation }: any) => {
   const sanitizedReceiptText = (receiptText || '').replace(/₹/g, 'Rs.');
 
   // Separate top Org Name for bold title header rendering
+  const is80mmWidth = organization.printWidth === '80mm' ? 48 : 32;
+  const currentOrgName = (organization?.name || 'STORE').toUpperCase();
+  const currentOrgNameLines = wrapText(currentOrgName, is80mmWidth);
+  const previewTitleLineCount = Math.max(1, currentOrgNameLines.length);
+
   const receiptLines = sanitizedReceiptText.split('\n');
-  const orgNameHeader = receiptLines.length > 0 ? receiptLines[0].trim() : (organization?.name || 'STORE').toUpperCase();
-  const remainingLines = receiptLines.length > 1 ? receiptLines.slice(1) : [];
+  const orgTitleLines = receiptLines.slice(0, previewTitleLineCount);
+  const remainingLines = receiptLines.slice(previewTitleLineCount);
   const titleFontSize = Math.max(18, Math.round(fontSize * 1.75));
 
   return (
@@ -113,20 +195,43 @@ export const PrintPreviewScreen = ({ route, navigation }: any) => {
           {/* Top Zig Zag tear indicator */}
           <View style={styles.tearIndicator} />
 
-          {/* Prominent Extra Bold Title Organization Header */}
-          <Text
-            style={[
-              styles.orgTitleHeader,
-              {
-                fontSize: titleFontSize,
-                lineHeight: Math.round(titleFontSize * 1.25),
-              },
-            ]}
-          >
-            {orgNameHeader}
-          </Text>
+          {/* Organization Logo (if enabled and set) */}
+          {organization.showLogoOnBill && organization.logoBase64 ? (
+            <View style={styles.logoContainer}>
+              <Image
+                source={{
+                  uri: organization.logoBase64.startsWith('data:')
+                    ? organization.logoBase64
+                    : `data:image/png;base64,${organization.logoBase64}`,
+                }}
+                style={[
+                  styles.logoImage,
+                  { width: is80mm ? 270 : 210, height: is80mm ? 95 : 80 },
+                ]}
+                resizeMode="contain"
+              />
+            </View>
+          ) : null}
 
-          {/* Remaining structured receipt content with bold highlights */}
+          {/* Prominent Extra Bold Title Organization Header */}
+          <View style={styles.orgTitleContainer}>
+            {orgTitleLines.map((tLine, tIdx) => (
+              <Text
+                key={tIdx}
+                style={[
+                  styles.orgTitleHeader,
+                  {
+                    fontSize: titleFontSize,
+                    lineHeight: Math.round(titleFontSize * 1.25),
+                  },
+                ]}
+              >
+                {tLine.trim()}
+              </Text>
+            ))}
+          </View>
+
+          {/* Remaining structured receipt content with bold highlights & QR code */}
           {remainingLines.map((line, index) => {
             const isGrandTotal = line.includes('GRAND TOTAL') || (index > 0 && remainingLines[index - 1].includes('GRAND TOTAL'));
             if (isGrandTotal) {
@@ -146,6 +251,43 @@ export const PrintPreviewScreen = ({ route, navigation }: any) => {
                 </Text>
               );
             }
+
+            // Replace plain text QR marker with visual scannable QR Code block
+            if (line.includes('[ UPI SCAN & PAY ]')) {
+              return (
+                <View key={index} style={styles.qrContainer}>
+                  {qrMatrix.length > 0 ? (
+                    <View style={styles.qrBox}>
+                      {qrMatrix.map((row, rIdx) => (
+                        <View key={rIdx} style={{ flexDirection: 'row', height: 3.5 }}>
+                          {row.map((isDark, cIdx) => (
+                            <View
+                              key={cIdx}
+                              style={{
+                                width: 3.5,
+                                height: 3.5,
+                                backgroundColor: isDark ? '#000000' : '#ffffff',
+                              }}
+                            />
+                          ))}
+                        </View>
+                      ))}
+                    </View>
+                  ) : null}
+                </View>
+              );
+            }
+
+            // Omit redundant lines that are already handled or shouldn't be printed as text
+            if (
+              organization.showUpiQrOnBill &&
+              (line.includes('Scan & Pay Exact:') ||
+                line.includes('UPI ID:') ||
+                (organization.upiPayeeName && line.trim() === organization.upiPayeeName.trim()))
+            ) {
+              return null;
+            }
+
             return (
               <Text key={index} style={[styles.receiptContent, { fontSize }]}>
                 {line}
@@ -172,19 +314,35 @@ export const PrintPreviewScreen = ({ route, navigation }: any) => {
       >
         <Button
           mode="outlined"
-          style={styles.controlBtn}
+          compact
+          style={styles.closeBtn}
+          contentStyle={styles.closeBtnContent}
+          labelStyle={styles.closeBtnLabel}
           onPress={() => navigation.goBack()}
         >
           Close
         </Button>
         <Button
-          mode="contained"
+          mode="outlined"
           icon="printer"
-          style={[styles.controlBtn, { flex: 1.5 }]}
+          compact
+          style={styles.printBtn}
+          contentStyle={styles.actionBtnContent}
+          labelStyle={styles.actionBtnLabel}
           onPress={handlePrint}
-          disabled={isDemoMode}
         >
-          {isDemoMode ? 'Print (Disabled)' : 'Print'}
+          Print
+        </Button>
+        <Button
+          mode="contained"
+          icon="image"
+          compact
+          style={styles.printImageBtn}
+          contentStyle={styles.actionBtnContent}
+          labelStyle={styles.actionBtnLabel}
+          onPress={handlePrintAsImage}
+        >
+          Print as Image
         </Button>
       </View>
 
@@ -282,24 +440,55 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     color: '#000000',
   },
+  orgTitleContainer: {
+    alignItems: 'center',
+    marginBottom: 8,
+  },
   orgTitleHeader: {
     fontFamily: Platform.OS === 'ios' ? 'Courier-Bold' : 'monospace',
     fontWeight: 'bold',
     textAlign: 'center',
     color: '#000000',
-    marginBottom: 8,
     letterSpacing: 1,
   },
   controlBar: {
     flexDirection: 'row',
-    padding: 16,
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingTop: 12,
     borderTopWidth: 1,
     borderTopColor: '#E0E0E0',
-    gap: 12,
+    gap: 8,
   },
-  controlBtn: {
+  closeBtn: {
+    minWidth: 56,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  closeBtnContent: {
+    height: 40,
+    paddingHorizontal: 4,
+  },
+  closeBtnLabel: {
+    fontSize: 12,
+    marginHorizontal: 2,
+  },
+  printBtn: {
     flex: 1,
     borderRadius: 8,
+    borderWidth: 1,
+  },
+  printImageBtn: {
+    flex: 1.35,
+    borderRadius: 8,
+  },
+  actionBtnContent: {
+    height: 40,
+    paddingHorizontal: 0,
+  },
+  actionBtnLabel: {
+    fontSize: 12,
+    marginHorizontal: 2,
   },
   dialogContent: {
     alignItems: 'center',
@@ -307,5 +496,40 @@ const styles = StyleSheet.create({
   },
   centerAlign: {
     alignItems: 'center',
+  },
+  logoContainer: {
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  logoImage: {
+    width: 210,
+    height: 80,
+  },
+  qrContainer: {
+    alignItems: 'center',
+    marginVertical: 6,
+  },
+  qrHeaderTitle: {
+    fontSize: 10,
+    fontWeight: 'bold',
+    color: '#555555',
+    letterSpacing: 0.5,
+    marginBottom: 6,
+  },
+  qrBox: {
+    backgroundColor: '#FFFFFF',
+    padding: 2,
+  },
+  qrAmountText: {
+    fontSize: 13,
+    fontWeight: 'bold',
+    color: '#111111',
+    marginTop: 6,
+  },
+  qrUpiIdText: {
+    fontSize: 11,
+    color: '#555555',
+    marginTop: 2,
+    fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
   },
 });

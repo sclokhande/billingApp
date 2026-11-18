@@ -287,4 +287,135 @@ exports.default = new RCTVoice();
   console.log('Successfully patched @react-native-voice/voice dist/index.js with dynamic NativeModules loader');
 }
 
+// 4. Ensure react-native-thermal-receipt-printer uses ultra-fast SPP UUID connection
+const printerAdapterPath = path.join(
+  __dirname,
+  '..',
+  'node_modules',
+  'react-native-thermal-receipt-printer',
+  'android',
+  'src',
+  'main',
+  'java',
+  'com',
+  'pinmi',
+  'react',
+  'printer',
+  'adapter',
+  'BLEPrinterAdapter.java'
+);
+
+if (fs.existsSync(printerAdapterPath)) {
+  let adapterContent = fs.readFileSync(printerAdapterPath, 'utf8');
+  if (adapterContent.includes('for (int channel = 1; channel <= 3; channel++)')) {
+    const fastConnectMethod = `    private void connectBluetoothDevice(BluetoothDevice device) throws IOException{
+        UUID uuid = UUID.fromString("00001101-0000-1000-8000-00805f9b34fb");
+        
+        // Fast-path 1: Standard Insecure SDP UUID connection (Fastest, connects in <300ms on 99% of POS printers)
+        try {
+            Log.i(LOG_TAG, "Attempting standard insecure RFCOMM connection via SDP UUID...");
+            this.mBluetoothSocket = device.createInsecureRfcommSocketToServiceRecord(uuid);
+            this.mBluetoothSocket.connect();
+            this.mBluetoothDevice = device;
+            Log.i(LOG_TAG, "Connected successfully via standard insecure RFCOMM socket.");
+            
+            // Immediately flush ESC @ to clear handshake bytes from printer buffer
+            try {
+                OutputStream out = this.mBluetoothSocket.getOutputStream();
+                out.write(new byte[]{27, 64});
+                out.flush();
+            } catch (Exception ignored) {}
+            
+            return;
+        } catch (Exception e) {
+            Log.w(LOG_TAG, "Standard insecure RFCOMM connection failed: " + e.getMessage());
+            if (this.mBluetoothSocket != null) {
+                try { this.mBluetoothSocket.close(); } catch (Exception ignored) {}
+                this.mBluetoothSocket = null;
+            }
+        }
+
+        // Fast-path 2: Direct Insecure RFCOMM Channel 1 (fallback for ROMs/printers where SDP service lookup fails)
+        try {
+            Log.i(LOG_TAG, "Attempting direct insecure RFCOMM connection on Channel 1...");
+            java.lang.reflect.Method m = device.getClass().getMethod("createInsecureRfcommSocket", new Class[] {int.class});
+            this.mBluetoothSocket = (BluetoothSocket) m.invoke(device, 1);
+            this.mBluetoothSocket.connect();
+            this.mBluetoothDevice = device;
+            Log.i(LOG_TAG, "Connected successfully via direct insecure RFCOMM Channel 1.");
+            
+            try {
+                OutputStream out = this.mBluetoothSocket.getOutputStream();
+                out.write(new byte[]{27, 64});
+                out.flush();
+            } catch (Exception ignored) {}
+            
+            return;
+        } catch (Exception e) {
+            Log.w(LOG_TAG, "Direct insecure RFCOMM Channel 1 failed: " + e.getMessage());
+            if (this.mBluetoothSocket != null) {
+                try { this.mBluetoothSocket.close(); } catch (Exception ignored) {}
+                this.mBluetoothSocket = null;
+            }
+        }
+
+        // Fast-path 3: Standard Secure SDP UUID connection
+        try {
+            Log.i(LOG_TAG, "Attempting standard secure RFCOMM connection via SDP UUID...");
+            this.mBluetoothSocket = device.createRfcommSocketToServiceRecord(uuid);
+            this.mBluetoothSocket.connect();
+            this.mBluetoothDevice = device;
+            Log.i(LOG_TAG, "Connected successfully via standard secure RFCOMM socket.");
+            
+            try {
+                OutputStream out = this.mBluetoothSocket.getOutputStream();
+                out.write(new byte[]{27, 64});
+                out.flush();
+            } catch (Exception ignored) {}
+            
+            return;
+        } catch (Exception e) {
+            Log.w(LOG_TAG, "Standard secure RFCOMM connection failed: " + e.getMessage());
+            if (this.mBluetoothSocket != null) {
+                try { this.mBluetoothSocket.close(); } catch (Exception ignored) {}
+                this.mBluetoothSocket = null;
+            }
+        }
+
+        // Fast-path 4: Direct Secure RFCOMM Channel 1 (final fallback)
+        try {
+            Log.i(LOG_TAG, "Attempting final fallback direct secure RFCOMM Channel 1...");
+            java.lang.reflect.Method m = device.getClass().getMethod("createRfcommSocket", new Class[] {int.class});
+            this.mBluetoothSocket = (BluetoothSocket) m.invoke(device, 1);
+            this.mBluetoothSocket.connect();
+            this.mBluetoothDevice = device;
+            Log.i(LOG_TAG, "Connected successfully via direct secure RFCOMM Channel 1.");
+            
+            try {
+                OutputStream out = this.mBluetoothSocket.getOutputStream();
+                out.write(new byte[]{27, 64});
+                out.flush();
+            } catch (Exception ignored) {}
+            return;
+        } catch (Exception e) {
+            Log.w(LOG_TAG, "Final fallback direct secure RFCOMM Channel 1 failed: " + e.getMessage());
+            if (this.mBluetoothSocket != null) {
+                try { this.mBluetoothSocket.close(); } catch (Exception ignored) {}
+                this.mBluetoothSocket = null;
+            }
+            throw new IOException("Failed to connect to Bluetooth printer via SPP or RFCOMM Channel 1: " + e.getMessage());
+        }
+    }`;
+
+    // Regex replace old multi-channel method
+    adapterContent = adapterContent.replace(
+      /private void connectBluetoothDevice\(BluetoothDevice device\) throws IOException\{[\s\S]*?\n    \}/,
+      fastConnectMethod
+    );
+    fs.writeFileSync(printerAdapterPath, adapterContent, 'utf8');
+    console.log('Successfully patched react-native-thermal-receipt-printer BLEPrinterAdapter.java for high-speed SPP connection');
+  }
+}
+
+
 

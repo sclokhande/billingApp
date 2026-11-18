@@ -236,6 +236,11 @@ export const generateInvoicesPdfReport = async (
       </head>
       <body>
         <div class="header">
+          ${organization.showLogoOnBill && organization.logoBase64 ? `
+            <div style="margin-bottom: 8px;">
+              <img src="${organization.logoBase64.startsWith('data:') ? organization.logoBase64 : `data:image/png;base64,${organization.logoBase64}`}" style="max-height: 65px; max-width: 180px; object-fit: contain;" />
+            </div>
+          ` : ''}
           <h1 class="store-name">${organization.name || 'PARCHIWALA STORE'}</h1>
           <div class="store-detail">${organization.address || ''}</div>
           <div class="store-detail">

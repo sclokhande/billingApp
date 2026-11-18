@@ -1,5 +1,10 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { APP_CONFIG } from '../config/app_config';
+import {
+  verifyMasterPassword,
+  verifyDailySupportKey,
+  calculateStateChecksum,
+} from './cryptoSecurity';
 
 export interface PrinterLockStatus {
   isLocked: boolean;
@@ -82,7 +87,8 @@ export const isSameRegisteredPrinter = async (deviceAddress: string): Promise<bo
 };
 
 /**
- * Records a successful printer connection, resetting the 48-hour inactivity timer.
+ * Records a successful printer connection, resetting the inactivity timer.
+ * Cryptographically commits the state checksum and updates monotonic clock watermark.
  */
 export const recordPrinterConnection = async (device: { name: string; address: string }): Promise<void> => {
   const now = Date.now().toString();
@@ -98,37 +104,62 @@ export const recordPrinterConnection = async (device: { name: string; address: s
   // Clear lock flag and master unlock timestamp since real printer is now active
   await AsyncStorage.removeItem(keys.IS_LOCKED_FLAG);
   await AsyncStorage.removeItem(keys.MASTER_UNLOCKED_TIMESTAMP);
+
+  // Update monotonic clock high watermark
+  await AsyncStorage.setItem(keys.CLOCK_HIGH_WATERMARK, now);
+
+  // Ensure install timestamp exists
+  let installTimeStr = await AsyncStorage.getItem(keys.APP_INSTALLED_AT);
+  if (!installTimeStr) {
+    installTimeStr = now;
+    await AsyncStorage.setItem(keys.APP_INSTALLED_AT, installTimeStr);
+  }
+
+  // Calculate and store cryptographic state checksum
+  const checksum = calculateStateChecksum(now, device.address || '', installTimeStr);
+  await AsyncStorage.setItem(keys.LOCK_STATE_CHECKSUM, checksum);
 };
 
 /**
- * Unlocks the app using the administrative Master Password, granting a 24-hour grace window.
+ * Unlocks the app using either the administrative Master Password or an offline Daily Support Key.
+ * Grants the configured grace period (e.g. 48 hours).
  */
 export const unlockWithMasterPassword = async (
-  enteredPassword: string
+  enteredPassword: string,
+  storeIdentifier?: string
 ): Promise<{ success: boolean; message: string }> => {
   const trimmed = (enteredPassword || '').trim();
-  const expected = APP_CONFIG.PRINTER_SECURITY_LOCK.MASTER_PASSWORD.trim();
 
   if (!trimmed) {
-    return { success: false, message: 'Please enter the Master Password.' };
+    return { success: false, message: 'Please enter the Master Password or Support Key.' };
   }
 
-  if (trimmed === expected) {
+  const isMasterValid = verifyMasterPassword(trimmed);
+  const isDailySupportValid =
+    verifyDailySupportKey(storeIdentifier || 'PARCHIWALA_STORE', trimmed) ||
+    verifyDailySupportKey('PARCHIWALA_STORE', trimmed);
+
+  if (isMasterValid || isDailySupportValid) {
     const now = Date.now().toString();
     const keys = APP_CONFIG.PRINTER_SECURITY_LOCK.STORAGE_KEYS;
 
     await AsyncStorage.setItem(keys.MASTER_UNLOCKED_TIMESTAMP, now);
     await AsyncStorage.removeItem(keys.IS_LOCKED_FLAG);
 
+    // Update monotonic clock watermark so clock rollback is prevented
+    await AsyncStorage.setItem(keys.CLOCK_HIGH_WATERMARK, now);
+
     return {
       success: true,
-      message: 'Master Password accepted. Temporary 24-hour operational grace period granted.',
+      message: isDailySupportValid
+        ? 'Daily Emergency Support Key accepted. Temporary 48-hour operational grace period granted.'
+        : `Master Password accepted. Temporary ${APP_CONFIG.PRINTER_SECURITY_LOCK.MASTER_UNLOCK_GRACE_HOURS}-hour operational grace period granted.`,
     };
   }
 
   return {
     success: false,
-    message: 'Incorrect Master Password. Please verify and try again or contact support.',
+    message: 'Incorrect Master Password or Support Key. Please verify and try again or contact support.',
   };
 };
 
@@ -155,12 +186,35 @@ export const evaluatePrinterLockStatus = async (): Promise<PrinterLockStatus> =>
   const thresholdMs = config.LOCK_THRESHOLD_HOURS * 3600 * 1000;
   const masterGraceMs = config.MASTER_UNLOCK_GRACE_HOURS * 3600 * 1000;
 
-  // 1. Check if Master Password unlock is currently active within grace window
+  // 1. Monotonic Clock Integrity Check (Anti-Clock-Rollback Protection)
+  // If system time rolled backward by > 1 hour (3600000ms), lock immediately.
+  const highWatermarkStr = await AsyncStorage.getItem(keys.CLOCK_HIGH_WATERMARK);
+  const highWatermark = highWatermarkStr ? parseInt(highWatermarkStr, 10) : 0;
+
+  if (highWatermark > 0 && now < highWatermark - 3600000) {
+    await AsyncStorage.setItem(keys.IS_LOCKED_FLAG, 'true');
+    const registered = await getRegisteredPrinter();
+    return {
+      isLocked: true,
+      timeRemainingMs: 0,
+      timeRemainingHours: 0,
+      lastConnectedDate: null,
+      registeredDevice: registered,
+      unlockedViaMaster: false,
+      featureEnabled: true,
+    };
+  }
+
+  // Update clock high watermark monotonically
+  const nextWatermark = Math.max(now, highWatermark);
+  await AsyncStorage.setItem(keys.CLOCK_HIGH_WATERMARK, nextWatermark.toString());
+
+  // 2. Check if Master Password unlock is currently active within grace window
   const masterUnlockStr = await AsyncStorage.getItem(keys.MASTER_UNLOCKED_TIMESTAMP);
   if (masterUnlockStr) {
     const masterUnlockTime = parseInt(masterUnlockStr, 10);
     const timeSinceMasterUnlock = now - masterUnlockTime;
-    if (timeSinceMasterUnlock < masterGraceMs) {
+    if (timeSinceMasterUnlock >= 0 && timeSinceMasterUnlock < masterGraceMs) {
       const remainingMs = masterGraceMs - timeSinceMasterUnlock;
       const registered = await getRegisteredPrinter();
       return {
@@ -175,17 +229,19 @@ export const evaluatePrinterLockStatus = async (): Promise<PrinterLockStatus> =>
     }
   }
 
-  // 2. Fetch last connection timestamp and registered printer
+  // 3. Fetch last connection timestamp and registered printer
   const lastConnStr = await AsyncStorage.getItem(keys.LAST_CONNECTED_TIMESTAMP);
   const registered = await getRegisteredPrinter();
 
+  // 4. Ensure install timestamp exists
+  let installTimeStr = await AsyncStorage.getItem(keys.APP_INSTALLED_AT);
+  if (!installTimeStr) {
+    installTimeStr = now.toString();
+    await AsyncStorage.setItem(keys.APP_INSTALLED_AT, installTimeStr);
+  }
+
   if (!lastConnStr || !registered) {
     // Initial install: check first-install grace period
-    let installTimeStr = await AsyncStorage.getItem(keys.APP_INSTALLED_AT);
-    if (!installTimeStr) {
-      installTimeStr = now.toString();
-      await AsyncStorage.setItem(keys.APP_INSTALLED_AT, installTimeStr);
-    }
     const installTime = parseInt(installTimeStr, 10);
     const timeSinceInstall = now - installTime;
     const installGraceMs = config.FIRST_INSTALL_GRACE_HOURS * 3600 * 1000;
@@ -213,6 +269,37 @@ export const evaluatePrinterLockStatus = async (): Promise<PrinterLockStatus> =>
       unlockedViaMaster: false,
       featureEnabled: true,
     };
+  }
+
+  // 5. Anti-Tamper Cryptographic Checksum Validation
+  const storedChecksum = await AsyncStorage.getItem(keys.LOCK_STATE_CHECKSUM);
+  if (storedChecksum) {
+    const expectedChecksum = calculateStateChecksum(
+      lastConnStr,
+      registered.address || '',
+      installTimeStr
+    );
+    if (storedChecksum !== expectedChecksum) {
+      // Local storage modification detected! Lock creation features immediately.
+      await AsyncStorage.setItem(keys.IS_LOCKED_FLAG, 'true');
+      return {
+        isLocked: true,
+        timeRemainingMs: 0,
+        timeRemainingHours: 0,
+        lastConnectedDate: null,
+        registeredDevice: registered,
+        unlockedViaMaster: false,
+        featureEnabled: true,
+      };
+    }
+  } else {
+    // Initialize baseline checksum for existing paired printer
+    const initialChecksum = calculateStateChecksum(
+      lastConnStr,
+      registered.address || '',
+      installTimeStr
+    );
+    await AsyncStorage.setItem(keys.LOCK_STATE_CHECKSUM, initialChecksum);
   }
 
   const lastConnTime = parseInt(lastConnStr, 10);

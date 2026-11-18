@@ -29,6 +29,7 @@ export interface DispatchContext {
   onNavigate?: (screenName: string, params?: any) => void;
   onPrintInvoice?: (invoiceId: string) => Promise<boolean>;
   orderSession?: ActiveOrderSession | null;
+  isPrinterLocked?: boolean;
 }
 
 // Helper for unit conversion
@@ -90,8 +91,27 @@ export const dispatchAgentQuery = async (
   rawQuery: string,
   context: DispatchContext
 ): Promise<AgentResponse> => {
-  const { invoices, products, customers, organization, connectedPrinter } = context;
+  const { invoices, products, customers, organization, connectedPrinter, isPrinterLocked } = context;
   const currency = organization.currency || '₹';
+
+  // Check if terminal is locked and query attempts to create/order bills
+  if (isPrinterLocked) {
+    if (context.orderSession || /^(?:create|make|new|draft|place|take|order|bill|pavti|banao)/i.test(rawQuery.trim())) {
+      return {
+        text: '🔒 **Terminal Creation Restricted**\n\nCreating new invoices is locked because your authorized thermal printer has not been connected for over 30 days.\n\nPlease connect your Parchiwala thermal printer or enter the Master Password to resume billing.',
+        actions: [
+          {
+            id: 'act_connect_printer',
+            label: 'Connect Printer',
+            type: 'NAVIGATE',
+            payload: { screen: 'PrinterConnect' },
+          },
+        ],
+        suggestedFollowUps: ["Today's sales", "Check stock"],
+        orderSession: null,
+      };
+    }
+  }
 
   // 0. Active Conversational Order Session State Machine
   if (context.orderSession) {

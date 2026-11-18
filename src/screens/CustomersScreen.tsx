@@ -14,11 +14,12 @@ import {
   ActivityIndicator,
 } from 'react-native-paper';
 import { useBilling } from '../context/BillingContext';
+import { TerminalLockBanner } from '../components/TerminalLockBanner';
 import { Customer } from '../db/types';
 
 export const CustomersScreen = () => {
   const theme = useTheme();
-  const { customers, saveCustomer, deleteCustomer, isLoading, isDemoMode } = useBilling();
+  const { customers, saveCustomer, deleteCustomer, isLoading, isDemoMode, isPrinterLocked } = useBilling();
   const { width } = useWindowDimensions();
 
   const numColumns = width > 600 ? 2 : 1;
@@ -48,6 +49,13 @@ export const CustomersScreen = () => {
   const [address, setAddress] = useState('');
 
   const openAddDialog = () => {
+    if (isPrinterLocked) {
+      Alert.alert(
+        'Terminal Creation Locked',
+        'Adding new customers is locked because your authorized thermal printer has not been connected for over 30 days. Please connect your printer or unlock with the Master Key.'
+      );
+      return;
+    }
     if (isDemoMode && customers.length >= 1) {
       Alert.alert('Demo Limit Reached', 'Demo Version Limit: You can add a maximum of 1 customer in the Demo build.');
       return;
@@ -61,6 +69,13 @@ export const CustomersScreen = () => {
   };
 
   const openEditDialog = (customer: Customer) => {
+    if (isPrinterLocked) {
+      Alert.alert(
+        'Terminal Creation Locked',
+        'Editing customer details is locked while the terminal is restricted.'
+      );
+      return;
+    }
     setEditingCustomer(customer);
     setName(customer.name);
     setPhone(customer.phone === '0000000000' ? '' : customer.phone);
@@ -116,6 +131,13 @@ export const CustomersScreen = () => {
   };
 
   const handleDelete = (customer: Customer) => {
+    if (isPrinterLocked) {
+      Alert.alert(
+        'Terminal Creation Locked',
+        'Deleting customer accounts is locked while the terminal is restricted.'
+      );
+      return;
+    }
     if (customer.name.toLowerCase().includes('walk-in')) {
       Alert.alert('Protected Account', 'The default Walk-in Customer account cannot be deleted.');
       return;
@@ -165,6 +187,9 @@ export const CustomersScreen = () => {
   return (
     <View style={styles.container}>
       <View style={{ flex: 1, width: '100%', maxWidth: 900, alignSelf: 'center' }}>
+        {/* Terminal Security Lock Warning Banner */}
+        <TerminalLockBanner style={{ marginHorizontal: 16, marginTop: 10, marginBottom: 2 }} />
+
         {/* Search Input */}
         <TextInput
           placeholder="Search customers by name or phone..."

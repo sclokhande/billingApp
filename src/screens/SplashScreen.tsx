@@ -65,16 +65,9 @@ export const SplashScreen = ({ navigation }: any) => {
         }
       }
 
-      // Check 48-Hour Printer Security Lock
+      // Evaluate Printer Security Lock status in background without blocking access
       try {
-        const lockStatus = await evaluatePrinterLockStatus();
-        if (lockStatus.isLocked) {
-          navigation.reset({
-            index: 0,
-            routes: [{ name: 'PrinterLock' }],
-          });
-          return;
-        }
+        await evaluatePrinterLockStatus();
       } catch (e) {
         console.error('[SplashScreen] Failed to check printer lock state:', e);
       }

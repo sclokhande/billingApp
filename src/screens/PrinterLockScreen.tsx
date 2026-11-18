@@ -40,12 +40,18 @@ export const PrinterLockScreen = ({ navigation }: any) => {
   const [isUnlocking, setIsUnlocking] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
 
-  // Lock hardware back button on Android so user cannot bypass lock screen
+  // Hardware back button returns user to MainTabs in read-only mode
   useEffect(() => {
-    const onBackPress = () => true;
+    const onBackPress = () => {
+      navigation.reset({
+        index: 0,
+        routes: [{ name: 'MainTabs' }],
+      });
+      return true;
+    };
     const sub = BackHandler.addEventListener('hardwareBackPress', onBackPress);
     return () => sub.remove();
-  }, []);
+  }, [navigation]);
 
   // Periodic check if printer was connected in background
   useEffect(() => {
@@ -162,10 +168,10 @@ export const PrinterLockScreen = ({ navigation }: any) => {
               style={[styles.avatar, { backgroundColor: theme.colors.errorContainer || '#FFEBEE' }]}
             />
             <Text variant="headlineSmall" style={[styles.title, { color: theme.colors.error }]}>
-              Terminal Locked
+              Terminal Creation Restricted
             </Text>
             <Text variant="bodyMedium" style={[styles.subtitle, { color: theme.colors.onSurfaceVariant }]}>
-              Your registered Bluetooth printer has not been connected for over {APP_CONFIG.PRINTER_SECURITY_LOCK.LOCK_THRESHOLD_HOURS} hours.
+              Your registered Bluetooth printer has not been connected for over {APP_CONFIG.PRINTER_SECURITY_LOCK.LOCK_THRESHOLD_HOURS} hours. Creating new invoices and adding items are locked.
             </Text>
           </View>
 
@@ -210,16 +216,27 @@ export const PrinterLockScreen = ({ navigation }: any) => {
                 Turn ON your registered printer and ensure Bluetooth is enabled on your device.
               </Text>
 
-              <Button
-                mode="contained"
-                icon="printer-wireless"
-                loading={isReconnecting}
-                disabled={isReconnecting || isUnlocking}
-                onPress={handleReconnectPrinter}
-                style={styles.actionBtn}
-              >
-                Reconnect Registered Printer
-              </Button>
+              <View style={{ gap: 8 }}>
+                <Button
+                  mode="contained"
+                  icon="printer-wireless"
+                  loading={isReconnecting}
+                  disabled={isReconnecting || isUnlocking}
+                  onPress={handleReconnectPrinter}
+                  style={styles.actionBtn}
+                >
+                  Reconnect Registered Printer
+                </Button>
+                <Button
+                  mode="outlined"
+                  icon="cog-outline"
+                  disabled={isReconnecting || isUnlocking}
+                  onPress={() => navigation.navigate('PrinterConnect')}
+                  style={styles.actionBtn}
+                >
+                  Pair / Configure Printer
+                </Button>
+              </View>
             </Card.Content>
           </Card>
 
@@ -296,6 +313,21 @@ export const PrinterLockScreen = ({ navigation }: any) => {
                 WhatsApp
               </Button>
             </View>
+
+            {/* Read-Only Mode Dismiss */}
+            <Button
+              mode="text"
+              icon="arrow-left"
+              onPress={() => {
+                navigation.reset({
+                  index: 0,
+                  routes: [{ name: 'MainTabs' }],
+                });
+              }}
+              style={{ marginTop: 14 }}
+            >
+              Browse Terminal (Read-Only Mode)
+            </Button>
           </View>
         </View>
       </ScrollView>

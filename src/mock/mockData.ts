@@ -40,6 +40,11 @@ export const MOCK_ORGANIZATION: Organization = {
   securityPin: '1234',
   showFooterTextOnBill: true,
   footerText: 'Print by Parchiwala',
+  logoBase64: '',
+  showLogoOnBill: true,
+  upiId: 'parchiwala@okaxis',
+  upiPayeeName: 'Parchiwala Store',
+  showUpiQrOnBill: true,
 };
 
 export const MOCK_PRODUCTS: Product[] = [

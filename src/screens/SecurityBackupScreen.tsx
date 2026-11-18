@@ -14,9 +14,16 @@ import {
   Snackbar,
   SegmentedButtons,
   Chip,
+  Switch,
+  ActivityIndicator,
 } from 'react-native-paper';
 import { useBilling } from '../context/BillingContext';
 import { APP_CONFIG } from '../config/app_config';
+import {
+  verifyMasterPassword,
+  verifyActivationPin,
+  verifyDailySupportKey,
+} from '../utils/cryptoSecurity';
 import {
   executeDataExport,
   ExportTarget,
@@ -38,10 +45,77 @@ export const SecurityBackupScreen = ({ navigation }: any) => {
     clearAllData,
     clearInvoicesOnly,
     isDemoMode,
+    isPrinterLocked,
+    autoBackupEnabled,
+    toggleAutoBackup,
+    createLocalBackup,
+    listLocalBackups,
+    restoreLocalBackup,
   } = useBilling();
 
-  // Master Admin Recovery Key
-  const MASTER_ADMIN_PIN = 'SAR773355291';
+  // Local Backups dialog states
+  const [localBackupsDialogVisible, setLocalBackupsDialogVisible] = useState(false);
+  const [localBackupsList, setLocalBackupsList] = useState<any[]>([]);
+  const [loadingBackups, setLoadingBackups] = useState(false);
+  const [creatingBackup, setCreatingBackup] = useState(false);
+
+  const handleOpenLocalBackups = async () => {
+    setLoadingBackups(true);
+    setLocalBackupsDialogVisible(true);
+    try {
+      const items = await listLocalBackups();
+      setLocalBackupsList(items);
+    } catch {
+      showToast('Could not load local backups', 'error');
+    } finally {
+      setLoadingBackups(false);
+    }
+  };
+
+  const handleCreateManualBackup = async () => {
+    setCreatingBackup(true);
+    try {
+      const res = await createLocalBackup(true);
+      if (res.success) {
+        showToast(`Backup saved to Documents folder: ${res.filename}`, 'success');
+        const items = await listLocalBackups();
+        setLocalBackupsList(items);
+      } else {
+        showToast(res.error || 'Failed to create backup', 'error');
+      }
+    } catch (e: any) {
+      showToast(e?.message || 'Error creating backup', 'error');
+    } finally {
+      setCreatingBackup(false);
+    }
+  };
+
+  const handleRestoreBackup = (item: any) => {
+    Alert.alert(
+      'Restore Backup',
+      `Are you sure you want to restore store data from:\n${item.filename}?\n\nThis will merge and restore all invoices, products, and customer records.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Restore Now',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              const res = await restoreLocalBackup(item.filePath);
+              if (res.success) {
+                setLocalBackupsDialogVisible(false);
+                showToast(res.message, 'success');
+              } else {
+                Alert.alert('Restore Failed', res.message);
+              }
+            } catch (err: any) {
+              Alert.alert('Restore Error', err?.message || 'Could not restore backup file.');
+            }
+          },
+        },
+      ]
+    );
+  };
 
   // PIN Auth States
   const [pinModalVisible, setPinModalVisible] = useState(false);
@@ -105,8 +179,16 @@ export const SecurityBackupScreen = ({ navigation }: any) => {
     if (action === 'export') {
       handleExport();
     } else if (action === 'import') {
+      if (isPrinterLocked) {
+        Alert.alert('Terminal Creation Locked', 'Importing data is disabled while the terminal is restricted. Connect an authorized printer to continue.');
+        return;
+      }
       openImportDialog();
     } else if (action === 'wipe') {
+      if (isPrinterLocked) {
+        Alert.alert('Terminal Creation Locked', 'Wiping database is disabled while the terminal is restricted.');
+        return;
+      }
       setWipeDialogVisible(true);
     } else if (action === 'update_pin') {
       setNewPinInput('');
@@ -125,8 +207,10 @@ export const SecurityBackupScreen = ({ navigation }: any) => {
 
     const isValid =
       (activePin && trimmedInput === activePin) ||
-      trimmedInput.toUpperCase() === MASTER_ADMIN_PIN.toUpperCase() ||
-      trimmedInput.toUpperCase() === (APP_CONFIG.ACTIVATION_PIN || '').toUpperCase();
+      verifyMasterPassword(trimmedInput) ||
+      verifyActivationPin(trimmedInput) ||
+      verifyDailySupportKey(organization?.name || 'PARCHIWALA_STORE', trimmedInput) ||
+      verifyDailySupportKey('PARCHIWALA_STORE', trimmedInput);
 
     if (isValid) {
       setPinModalVisible(false);
@@ -168,8 +252,14 @@ export const SecurityBackupScreen = ({ navigation }: any) => {
   };
 
   const handleResetPinWithMasterKey = async () => {
-    if (masterAdminInput.trim() !== MASTER_ADMIN_PIN) {
-      Alert.alert('Authentication Failed', 'Invalid Master Admin Recovery Key.');
+    const trimmedMasterInput = masterAdminInput.trim();
+    const isMasterValid =
+      verifyMasterPassword(trimmedMasterInput) ||
+      verifyDailySupportKey(organization?.name || 'PARCHIWALA_STORE', trimmedMasterInput) ||
+      verifyDailySupportKey('PARCHIWALA_STORE', trimmedMasterInput);
+
+    if (!isMasterValid) {
+      Alert.alert('Authentication Failed', 'Invalid Master Admin Recovery Key or Daily Support Key.');
       return;
     }
 
@@ -213,13 +303,13 @@ export const SecurityBackupScreen = ({ navigation }: any) => {
       ? invoiceGstFilter === 'all'
         ? totalInvoicesCount
         : invoiceGstFilter === 'gst'
-        ? gstInvoicesCount
-        : nonGstInvoicesCount
+          ? gstInvoicesCount
+          : nonGstInvoicesCount
       : exportTarget === 'products'
-      ? (products || []).length
-      : exportTarget === 'customers'
-      ? (customers || []).length
-      : totalInvoicesCount + (products || []).length + (customers || []).length;
+        ? (products || []).length
+        : exportTarget === 'customers'
+          ? (customers || []).length
+          : totalInvoicesCount + (products || []).length + (customers || []).length;
 
   const handleExport = () => {
     setExportDialogVisible(true);
@@ -537,6 +627,50 @@ export const SecurityBackupScreen = ({ navigation }: any) => {
           </Card.Content>
         </Card>
 
+        {/* Section 2.5: Persistent Device Storage Auto-Backups (Hardened Sandbox Protection) */}
+        <Card style={styles.card} mode="outlined">
+          <Card.Content style={{ gap: 12 }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <View style={{ flex: 1, marginRight: 8 }}>
+                <Text variant="titleMedium" style={styles.boldText}>
+                  Persistent Device Storage Backups
+                </Text>
+                <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
+                  Automated daily backups stored in Documents/ParchiwalaBackups/ safe against accidental app uninstalls.
+                </Text>
+              </View>
+              <Switch
+                value={autoBackupEnabled}
+                onValueChange={(val) => toggleAutoBackup(val)}
+                color={theme.colors.primary}
+              />
+            </View>
+
+            <Divider style={{ marginVertical: 4 }} />
+
+            <View style={{ flexDirection: 'row', gap: 10 }}>
+              <Button
+                mode="contained-tonal"
+                icon="content-save-outline"
+                loading={creatingBackup}
+                onPress={handleCreateManualBackup}
+                disabled={isDemoMode || creatingBackup}
+                style={{ flex: 1 }}
+              >
+                Backup Now
+              </Button>
+              <Button
+                mode="outlined"
+                icon="history"
+                onPress={handleOpenLocalBackups}
+                style={{ flex: 1 }}
+              >
+                View / Restore
+              </Button>
+            </View>
+          </Card.Content>
+        </Card>
+
         {/* Section 3: Data Cleanup & Wipe */}
         <Card style={[styles.card, { borderColor: theme.colors.error + '40' }]} mode="outlined">
           <Card.Content style={{ gap: 12 }}>
@@ -571,8 +705,8 @@ export const SecurityBackupScreen = ({ navigation }: any) => {
               snackbarType === 'error'
                 ? '#D32F2F'
                 : snackbarType === 'info'
-                ? '#0288D1'
-                : '#2E7D32',
+                  ? '#0288D1'
+                  : '#2E7D32',
             borderRadius: 8,
           }}
         >
@@ -713,7 +847,7 @@ export const SecurityBackupScreen = ({ navigation }: any) => {
           </Dialog.Title>
           <Dialog.ScrollArea style={{ maxHeight: 440, paddingHorizontal: 0 }}>
             <ScrollView contentContainerStyle={{ paddingHorizontal: 20, paddingVertical: 10, gap: 14 }}>
-              
+
               {/* Step 1: Select Target */}
               <View style={{ gap: 6 }}>
                 <Text variant="labelMedium" style={{ fontWeight: 'bold', color: theme.colors.primary }}>
@@ -831,10 +965,10 @@ export const SecurityBackupScreen = ({ navigation }: any) => {
                       {exportTarget === 'invoices'
                         ? `Invoices (${invoiceGstFilter === 'all' ? 'All' : invoiceGstFilter === 'gst' ? 'GST Only' : 'Non-GST Only'})`
                         : exportTarget === 'products'
-                        ? 'Products Catalog'
-                        : exportTarget === 'customers'
-                        ? 'Customers Directory'
-                        : 'Full Database Backup'}
+                          ? 'Products Catalog'
+                          : exportTarget === 'customers'
+                            ? 'Customers Directory'
+                            : 'Full Database Backup'}
                     </Text>
                     <Text variant="bodySmall" style={{ color: theme.colors.onPrimaryContainer, opacity: 0.85 }}>
                       {currentExportCount} {currentExportCount === 1 ? 'record' : 'records'} ready to export as {exportTarget === 'full' ? 'JSON' : exportFormat.toUpperCase()}
@@ -921,6 +1055,77 @@ export const SecurityBackupScreen = ({ navigation }: any) => {
             </Button>
           </Dialog.Actions>
         </Dialog>
+
+        {/* Local Storage Backups Dialog */}
+        <Dialog
+          visible={localBackupsDialogVisible}
+          onDismiss={() => setLocalBackupsDialogVisible(false)}
+          style={[styles.dialog, { maxHeight: '80%' }]}
+        >
+          <Dialog.Title>Persistent Storage Backups</Dialog.Title>
+          <Dialog.ScrollArea style={{ maxHeight: 380, paddingHorizontal: 0 }}>
+            <ScrollView contentContainerStyle={{ paddingHorizontal: 20, paddingVertical: 10, gap: 10 }}>
+              {loadingBackups ? (
+                <View style={{ padding: 20, alignItems: 'center' }}>
+                  <ActivityIndicator size="small" color={theme.colors.primary} />
+                  <Text style={{ marginTop: 8, fontSize: 12 }}>Scanning backup folder...</Text>
+                </View>
+              ) : localBackupsList.length === 0 ? (
+                <View style={{ padding: 20, alignItems: 'center' }}>
+                  <Avatar.Icon size={40} icon="folder-open-outline" style={{ backgroundColor: '#ECEFF1' }} color="#78909C" />
+                  <Text style={{ marginTop: 8, color: theme.colors.onSurfaceVariant, textAlign: 'center', fontSize: 13 }}>
+                    No local backup files found in Documents/ParchiwalaBackups/. Tap 'Backup Now' to create one!
+                  </Text>
+                </View>
+              ) : (
+                localBackupsList.map((item, idx) => (
+                  <View
+                    key={idx}
+                    style={{
+                      padding: 12,
+                      borderRadius: 10,
+                      borderWidth: 1,
+                      borderColor: theme.colors.outlineVariant,
+                      backgroundColor: item.isDailyAuto ? '#F1F8E9' : '#F5F5F5',
+                      gap: 4,
+                    }}
+                  >
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <Text style={{ fontWeight: 'bold', fontSize: 13, flex: 1, marginRight: 6 }} numberOfLines={1}>
+                        {item.filename}
+                      </Text>
+                      <Chip compact style={{ height: 22 }}>
+                        {item.isDailyAuto ? 'Daily Auto' : 'Manual'}
+                      </Chip>
+                    </View>
+                    <Text style={{ fontSize: 11, color: theme.colors.onSurfaceVariant }}>
+                      Saved: {new Date(item.mtime).toLocaleString()} • Size: {(item.size / 1024).toFixed(1)} KB
+                    </Text>
+                    {item.summary && (
+                      <Text style={{ fontSize: 11, color: '#37474F' }}>
+                        📊 {item.summary.totalInvoices} bills • {item.summary.totalProducts} items • {item.summary.totalCustomers} customers
+                      </Text>
+                    )}
+                    <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginTop: 4 }}>
+                      <Button
+                        mode="contained"
+                        compact
+                        onPress={() => handleRestoreBackup(item)}
+                        style={{ borderRadius: 6 }}
+                      >
+                        Restore Store
+                      </Button>
+                    </View>
+                  </View>
+                ))
+              )}
+            </ScrollView>
+          </Dialog.ScrollArea>
+          <Dialog.Actions>
+            <Button onPress={() => setLocalBackupsDialogVisible(false)}>Close</Button>
+          </Dialog.Actions>
+        </Dialog>
+
       </Portal>
     </ScrollView>
   );

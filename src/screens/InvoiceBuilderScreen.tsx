@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { StyleSheet, View, ScrollView, FlatList, Alert, useWindowDimensions, Platform } from 'react-native';
 import {
   Text,
@@ -8,25 +8,27 @@ import {
   IconButton,
   Portal,
   Dialog,
-  RadioButton,
   List,
   Divider,
   useTheme,
-  HelperText,
   SegmentedButtons,
   ActivityIndicator,
   Snackbar,
-  Menu,
   Chip,
-  FAB,
   Avatar,
   Icon,
 } from 'react-native-paper';
 import { useBilling } from '../context/BillingContext';
+import { TerminalLockBanner } from '../components/TerminalLockBanner';
 import { Invoice, InvoiceItem, Customer, Product } from '../db/types';
-import { generateInvoicesPdfReport, shareInvoicesPdfReport } from '../services/pdfReportService';
-import { exportInvoicesToCsv, exportInvoicesToJson } from '../services/exportService';
-import { parseInvoiceDate, isToday, formatInvoiceDateTime, sortInvoicesLatestFirst } from '../utils/dateUtils';
+import { formatThermalReceipt, wrapText } from '../services/printService';
+import {
+  buildUpiPaymentUri,
+  getQrMatrix,
+  convertQrMatrixToEscPosRaster,
+  convertImageBase64ToEscPosRaster,
+  uint8ArrayToBase64,
+} from '../utils/receiptBrandingService';
 
 const getDeltaForUnit = (unitName: string, isDecrement: boolean) => {
   const u = (unitName || '').toLowerCase();
@@ -70,12 +72,16 @@ export const InvoiceBuilderScreen = ({ navigation, route }: any) => {
     products,
     organization,
     createInvoice,
+    saveCustomer,
     invoices,
-    getAllInvoiceItems,
     isLoading,
     verifyPrinterConnectionOrRedirect,
+    printReceipt,
     isDemoMode,
+    isPrinterLocked,
   } = useBilling();
+
+  const { width } = useWindowDimensions();
 
   // Selected customer & Items
   const [selectedCustomerId, setSelectedCustomerId] = useState<string>('');
@@ -85,14 +91,57 @@ export const InvoiceBuilderScreen = ({ navigation, route }: any) => {
     unit: string;
     price: number;
   }>>([]);
+
+  // Discount states: dual mode (% vs ₹) and auto cash round-off
+  const [discountMode, setDiscountMode] = useState<'percent' | 'flat'>('percent');
   const [discount, setDiscount] = useState<string>('');
+  const [enableRoundOff, setEnableRoundOff] = useState<boolean>(true);
+
   const [paymentMethod, setPaymentMethod] = useState<string>('UPI');
   const [paymentStatus, setPaymentStatus] = useState<'Paid' | 'Unpaid'>('Paid');
 
-  // Billing mode tab state: 'builder' (New Invoice) or 'history' (All Invoices History)
-  const [activeTab, setActiveTab] = useState<'builder' | 'history'>('builder');
+  // Customer search & quick-add states inside customer picker dialog
+  const [customerDialogVisible, setCustomerDialogVisible] = useState(false);
+  const [customerSearchQuery, setCustomerSearchQuery] = useState('');
 
-  // Prefill from AI Order transfer if routed
+  // Product selection & editing states
+  const [productDialogVisible, setProductDialogVisible] = useState(false);
+  const [productSearchQuery, setProductSearchQuery] = useState('');
+
+  const [editItemDialogVisible, setEditItemDialogVisible] = useState(false);
+  const [editingCartItem, setEditingCartItem] = useState<{
+    productId: string;
+    name: string;
+    basePrice: number;
+    baseUnit: string;
+    quantity: string;
+    unit: string;
+  } | null>(null);
+
+  // Snackbar feedback states
+  const [snackbarVisible, setSnackbarVisible] = useState(false);
+  const [snackbarMessage, setSnackbarMessage] = useState('');
+
+  // Header Right: Direct Link to All Invoices Screen
+  useEffect(() => {
+    navigation.setOptions({
+      headerRight: () => (
+        <Button
+          mode="text"
+          textColor={theme.colors.onPrimary}
+          icon="history"
+          compact
+          onPress={() => navigation.navigate('InvoiceHistory')}
+          labelStyle={{ fontSize: 13, fontWeight: 'bold', marginHorizontal: 2 }}
+          style={{ marginRight: 6 }}
+        >
+          {`Bills (${invoices.length})`}
+        </Button>
+      ),
+    });
+  }, [navigation, theme, invoices.length]);
+
+  // Prefill from AI Order transfer or Inventory route
   useEffect(() => {
     if (route?.params?.prefillItems && route.params.prefillItems.length > 0) {
       const mapped = route.params.prefillItems.map((item: any) => {
@@ -120,7 +169,6 @@ export const InvoiceBuilderScreen = ({ navigation, route }: any) => {
       if (route.params.customerId) {
         setSelectedCustomerId(route.params.customerId);
       }
-      setActiveTab('builder');
     } else if (route?.params?.prefillProduct) {
       const p = route.params.prefillProduct;
       const qty = route.params.quantity || 1;
@@ -141,178 +189,10 @@ export const InvoiceBuilderScreen = ({ navigation, route }: any) => {
       if (route.params.customerId) {
         setSelectedCustomerId(route.params.customerId);
       }
-      setActiveTab('builder');
     }
   }, [route?.params, products]);
 
-  // History Search & Filter states
-  const historyScrollViewRef = useRef<ScrollView>(null);
-  const [showGoToTop, setShowGoToTop] = useState(false);
-
-  const handleHistoryScroll = (event: any) => {
-    const offsetY = event.nativeEvent.contentOffset.y;
-    if (offsetY > 150) {
-      setShowGoToTop(true);
-    } else {
-      setShowGoToTop(false);
-    }
-  };
-
-  const scrollToTop = () => {
-    historyScrollViewRef.current?.scrollTo({ y: 0, animated: true });
-  };
-
-  const [historySearch, setHistorySearch] = useState('');
-  const [historyDateFilter, setHistoryDateFilter] = useState<'all' | 'today' | 'week' | 'month'>('all');
-  const [historyCustomerFilter, setHistoryCustomerFilter] = useState<string>('all');
-  const [historyStatusFilter, setHistoryStatusFilter] = useState<'all' | 'Paid' | 'Unpaid'>('all');
-  const [historyGstFilter, setHistoryGstFilter] = useState<'all' | 'gst' | 'nongst'>('all');
-  const [filterModalVisible, setFilterModalVisible] = useState(false);
-
-  const hasActiveFilters = historyDateFilter !== 'all' || historyStatusFilter !== 'all' || historyGstFilter !== 'all';
-
-  // Filtered invoices logic - strictly sorted latest first
-  const filteredInvoices = React.useMemo(() => {
-    const list = invoices.filter((inv) => {
-      // 1. Search Query Filter (Invoice Number, Customer Name, Mobile Number)
-      const q = historySearch.toLowerCase().trim();
-      if (q) {
-        const matchNum = (inv.invoiceNumber || '').toLowerCase().includes(q);
-        const matchCust = (inv.customerName || '').toLowerCase().includes(q);
-        const custObj = customers.find((c) => c.id === inv.customerId);
-        const matchPhone = (custObj?.phone || '').includes(q);
-        if (!matchNum && !matchCust && !matchPhone) {
-          return false;
-        }
-      }
-
-      // 2. Date Filter
-      if (historyDateFilter !== 'all') {
-        const invDate = parseInvoiceDate(inv.date);
-        const today = new Date();
-        if (historyDateFilter === 'today') {
-          if (!isToday(inv.date)) return false;
-        } else if (historyDateFilter === 'week') {
-          const sevenDaysAgo = new Date();
-          sevenDaysAgo.setDate(today.getDate() - 7);
-          sevenDaysAgo.setHours(0, 0, 0, 0);
-          if (invDate < sevenDaysAgo) return false;
-        } else if (historyDateFilter === 'month') {
-          const isSameMonth =
-            invDate.getFullYear() === today.getFullYear() &&
-            invDate.getMonth() === today.getMonth();
-          if (!isSameMonth) return false;
-        }
-      }
-
-      // 3. Customer Filter
-      if (historyCustomerFilter !== 'all') {
-        if (inv.customerId !== historyCustomerFilter) {
-          return false;
-        }
-      }
-
-      // 4. Payment Status Filter
-      if (historyStatusFilter !== 'all') {
-        if (inv.paymentStatus !== historyStatusFilter) {
-          return false;
-        }
-      }
-
-      // 5. GST Bill Type Filter ('all' | 'gst' | 'nongst')
-      if (historyGstFilter !== 'all') {
-        const tax = typeof inv.taxTotal === 'number' ? inv.taxTotal : parseFloat(inv.taxTotal as any) || 0;
-        const cgst = typeof inv.cgstTotal === 'number' ? inv.cgstTotal : parseFloat(inv.cgstTotal as any) || 0;
-        const sgst = typeof inv.sgstTotal === 'number' ? inv.sgstTotal : parseFloat(inv.sgstTotal as any) || 0;
-        const hasTax = tax > 0 || (cgst + sgst) > 0;
-        if (historyGstFilter === 'gst' && !hasTax) {
-          return false;
-        }
-        if (historyGstFilter === 'nongst' && hasTax) {
-          return false;
-        }
-      }
-
-      return true;
-    });
-
-    return sortInvoicesLatestFirst(list);
-  }, [invoices, historySearch, customers, historyDateFilter, historyCustomerFilter, historyStatusFilter, historyGstFilter]);
-
-  const filteredTotalRevenue = filteredInvoices.reduce((sum, inv) => sum + inv.grandTotal, 0);
-
-
-
-  const handleSharePdfReport = async (reportType: 'summary' | 'detailed' = 'summary') => {
-    if (filteredInvoices.length === 0) {
-      Alert.alert('Report Warning', 'No invoices available to share PDF report.');
-      return;
-    }
-    try {
-      const gstTag = historyGstFilter === 'gst' ? 'GST Bills' : historyGstFilter === 'nongst' ? 'Non-GST Bills' : 'All Bills';
-      const dateTag = historyDateFilter === 'all' ? 'All Dates' : historyDateFilter.toUpperCase();
-      const statusTag = historyStatusFilter === 'all' ? 'All Status' : historyStatusFilter.toUpperCase();
-      const filterTitle = `Sales Report (${gstTag} • ${dateTag} • ${statusTag})`;
-      await shareInvoicesPdfReport(organization, filteredInvoices, filterTitle, reportType);
-    } catch (e: any) {
-      console.warn('[InvoiceBuilder] PDF Share error:', e);
-      Alert.alert('Error', e?.message || 'Failed to share PDF report.');
-    }
-  };
-
-  const handleExportInvoicesData = async (format: 'csv' | 'json') => {
-    if (filteredInvoices.length === 0) {
-      Alert.alert('Export Warning', 'No invoices available to export.');
-      return;
-    }
-    try {
-      let items: any[] = [];
-      try {
-        items = await getAllInvoiceItems();
-      } catch (err) {
-        items = [];
-      }
-
-      const result = format === 'csv'
-        ? exportInvoicesToCsv(filteredInvoices, items, customers, historyGstFilter)
-        : exportInvoicesToJson(filteredInvoices, items, customers, historyGstFilter);
-
-      const RNFS = require('react-native-fs');
-      const filePath = `${RNFS.CachesDirectoryPath}/${result.filename}`;
-      await RNFS.writeFile(filePath, result.content, 'utf8');
-
-      const RNShare = require('react-native-share').default;
-      await RNShare.open({
-        url: `file://${filePath}`,
-        type: result.mimeType,
-        filename: result.filename,
-        title: result.filename,
-        failOnCancel: false,
-      });
-    } catch (e: any) {
-      if (e && e.message && !e.message.includes('User did not share') && !e.message.includes('CANCELLED')) {
-        Alert.alert('Export Error', e?.message || 'Failed to export invoices.');
-      }
-    }
-  };
-
-  // Dialog Toggles
-  const [customerDialogVisible, setCustomerDialogVisible] = useState(false);
-  const [productDialogVisible, setProductDialogVisible] = useState(false);
-  const [productSearchQuery, setProductSearchQuery] = useState('');
-
-  // Cart Item Edit Dialog States
-  const [editItemDialogVisible, setEditItemDialogVisible] = useState(false);
-  const [editingCartItem, setEditingCartItem] = useState<{
-    productId: string;
-    name: string;
-    basePrice: number;
-    baseUnit: string;
-    quantity: string;
-    unit: string;
-  } | null>(null);
-
-  // Auto-select Walk-in Customer on load
+  // Auto-select Walk-in Customer on initial load
   useEffect(() => {
     const walkIn = customers.find((c) => 
       c.name.toLowerCase().includes('walk-in') || 
@@ -327,10 +207,7 @@ export const InvoiceBuilderScreen = ({ navigation, route }: any) => {
 
   const selectedCustomer = customers.find((c) => c.id === selectedCustomerId) || null;
 
-  // Snackbar Toast states
-  const [snackbarVisible, setSnackbarVisible] = useState(false);
-  const [snackbarMessage, setSnackbarMessage] = useState('');
-
+  // Reset Draft Action
   const handleResetInvoiceData = () => {
     const walkIn = customers.find((c) => 
       c.name.toLowerCase().includes('walk-in') || 
@@ -535,10 +412,73 @@ export const InvoiceBuilderScreen = ({ navigation, route }: any) => {
 
   const subtotal = calculateSubtotal();
   const { totalTax, cgst, sgst } = calculateTax();
-  const discountVal = subtotal * ((parseFloat(discount) || 0) / 100);
-  const grandTotal = Math.max(0, subtotal + totalTax - discountVal);
 
-  const handleSaveInvoice = async () => {
+  // Dual Mode Discount Calculation
+  let discountVal = 0;
+  if (discount) {
+    const rawDisc = parseFloat(discount) || 0;
+    if (discountMode === 'percent') {
+      discountVal = subtotal * (Math.min(100, Math.max(0, rawDisc)) / 100);
+    } else {
+      discountVal = Math.min(subtotal + totalTax, Math.max(0, rawDisc));
+    }
+  }
+
+  // Cash Round-Off Calculation
+  const netBeforeRound = Math.max(0, subtotal + totalTax - discountVal);
+  let roundOffDiff = 0;
+  let grandTotal = netBeforeRound;
+
+  if (enableRoundOff) {
+    grandTotal = Math.round(netBeforeRound);
+    roundOffDiff = grandTotal - netBeforeRound;
+  }
+
+  // Inline Quick-Add Customer Handler
+  const handleQuickAddCustomer = async () => {
+    const q = customerSearchQuery.trim();
+    if (!q) return;
+
+    const isAllDigits = /^\d{10}$/.test(q);
+    const newCust: Customer = {
+      id: Math.random().toString(36).substring(2, 15),
+      name: isAllDigits ? `Customer ${q.slice(-4)}` : q,
+      phone: isAllDigits ? q : '',
+      email: '',
+      address: '',
+    };
+
+    try {
+      await saveCustomer(newCust);
+      setSelectedCustomerId(newCust.id);
+      setCustomerSearchQuery('');
+      setCustomerDialogVisible(false);
+      setSnackbarMessage(`Customer '${newCust.name}' added & selected!`);
+      setSnackbarVisible(true);
+    } catch (err) {
+      Alert.alert('Error', 'Failed to quickly add customer.');
+    }
+  };
+
+  const filteredCustomers = customers.filter(c =>
+    c.name.toLowerCase().includes(customerSearchQuery.toLowerCase()) ||
+    (c.phone && c.phone.includes(customerSearchQuery))
+  );
+
+  // Save Invoice & Optionally Print Directly
+  const handleSaveInvoice = async (autoPrint: boolean = false) => {
+    if (isPrinterLocked) {
+      Alert.alert(
+        'Terminal Creation Locked',
+        'Creating new invoices is locked because your authorized thermal printer has not been connected for over 30 days. Please connect your printer or unlock with the Master Key.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Connect Printer', onPress: () => navigation.navigate('PrinterConnect') },
+        ]
+      );
+      return;
+    }
+
     if (cart.length === 0) {
       Alert.alert('Error', 'Please add at least one product to the invoice.');
       return;
@@ -590,565 +530,485 @@ export const InvoiceBuilderScreen = ({ navigation, route }: any) => {
 
       await createInvoice(invoiceData, invoiceItems);
 
-      // Reset Form
-      setCart([]);
-      setDiscount('');
-      setPaymentMethod('UPI');
-      setPaymentStatus('Paid');
+      if (autoPrint) {
+        // Direct 1-tap counter print to Bluetooth thermal printer
+        const isReady = await verifyPrinterConnectionOrRedirect(navigation);
+        if (isReady) {
+          const is80mm = organization.printWidth === '80mm';
+          const paperDots = is80mm ? 576 : 384;
+          const w = is80mm ? 48 : 32;
+          const orgName = (organization?.name || 'STORE').toUpperCase();
+          const orgNameLines = wrapText(orgName, w);
+          const orgTitleLineCount = Math.max(1, orgNameLines.length);
 
-      // Navigate to Print Preview for direct print option
-      navigation.navigate('PrintPreview', { invoiceId, invoice: invoiceData, items: invoiceItems });
+          let logoRasterBase64 = '';
+          if (organization.showLogoOnBill && organization.logoBase64) {
+            logoRasterBase64 = await convertImageBase64ToEscPosRaster(organization.logoBase64, paperDots);
+          }
+
+          let qrRasterBase64 = '';
+          if (organization.showUpiQrOnBill && organization.upiId) {
+            const upiUri = buildUpiPaymentUri({
+              upiId: organization.upiId,
+              payeeName: organization.upiPayeeName || organization.name,
+              amount: invoiceData.grandTotal || 0,
+              invoiceNumber: invoiceData.invoiceNumber,
+            });
+            if (upiUri) {
+              const matrix = getQrMatrix(upiUri);
+              if (matrix.length > 0) {
+                const qrBytes = convertQrMatrixToEscPosRaster(matrix, paperDots);
+                qrRasterBase64 = uint8ArrayToBase64(qrBytes);
+              }
+            }
+          }
+
+          const cust = customers.find((c) => c.id === selectedCustomerId) || null;
+          const receiptText = formatThermalReceipt(organization, cust, invoiceData, invoiceItems);
+
+          await printReceipt(receiptText, navigation, {
+            logoRasterBase64,
+            qrRasterBase64,
+            titleLineCount: orgTitleLineCount,
+          });
+        }
+
+        // Reset Form for next customer
+        setCart([]);
+        setDiscount('');
+        setPaymentMethod('UPI');
+        setPaymentStatus('Paid');
+        setSnackbarMessage(`Invoice ${invoiceNumber} saved & printed!`);
+        setSnackbarVisible(true);
+      } else {
+        // Reset Form & Navigate to Print Preview screen
+        setCart([]);
+        setDiscount('');
+        setPaymentMethod('UPI');
+        setPaymentStatus('Paid');
+        navigation.navigate('PrintPreview', { invoiceId, invoice: invoiceData, items: invoiceItems });
+      }
     } catch (e) {
       Alert.alert('Error', 'Failed to generate invoice. Please try again.');
     }
   };
 
-  const { width } = useWindowDimensions();
-
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
-      {/* Top Mode Switcher Header: Fixed at top */}
-      <View style={{ width: '100%', maxWidth: 700, alignSelf: 'center', paddingHorizontal: width > 700 ? 16 : 10, paddingTop: 10 }}>
-        {isDemoMode && (
-          <Card style={{ backgroundColor: '#FFF3E0', borderColor: '#FFE0B2', marginBottom: 8 }} mode="outlined">
-            <Card.Content style={{ paddingVertical: 6, paddingHorizontal: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-              <Text style={{ fontSize: 11, fontWeight: 'bold', color: '#E65100' }}>
-                Demo Version Mode ({invoices.length}/3 Invoices Used)
-              </Text>
-              <Chip compact style={{ backgroundColor: '#FFE0B2' }} textStyle={{ color: '#E65100', fontSize: 10, fontWeight: 'bold' }}>
-                DEMO BUILD
-              </Chip>
+      {/* Scrollable Main POS Billing Area: Customer, Cart Items, Bill Breakdown */}
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={{ paddingHorizontal: width > 700 ? 16 : 10, paddingTop: 10, paddingBottom: 16 }}
+        keyboardShouldPersistTaps="handled"
+      >
+        <View style={{ width: '100%', maxWidth: 700, alignSelf: 'center' }}>
+          {/* Terminal Security Lock Warning Banner */}
+          <TerminalLockBanner navigation={navigation} style={{ marginHorizontal: 0, marginBottom: 8 }} />
+
+          {/* Demo Version Mode Warning Banner */}
+          {isDemoMode && (
+            <Card style={{ backgroundColor: '#FFF3E0', borderColor: '#FFE0B2', marginBottom: 8 }} mode="outlined">
+              <Card.Content style={{ paddingVertical: 6, paddingHorizontal: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                <Text style={{ fontSize: 11, fontWeight: 'bold', color: '#E65100' }}>
+                  Demo Version Mode ({invoices.length}/3 Invoices Used)
+                </Text>
+                <Chip compact style={{ backgroundColor: '#FFE0B2' }} textStyle={{ color: '#E65100', fontSize: 10, fontWeight: 'bold' }}>
+                  DEMO BUILD
+                </Chip>
+              </Card.Content>
+            </Card>
+          )}
+
+          {/* Compact Customer Selection Card */}
+          <Card style={[styles.compactCard, { marginBottom: 8 }]} mode="outlined">
+            <Card.Content style={styles.compactCustomerContent}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
+                <Avatar.Icon size={30} icon="account" style={{ backgroundColor: theme.colors.primaryContainer }} color={theme.colors.primary} />
+                <View style={{ flex: 1 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <Text style={{ fontSize: 10, fontWeight: '700', color: theme.colors.onSurfaceVariant, letterSpacing: 0.5 }}>
+                      CUSTOMER
+                    </Text>
+                    <Text variant="titleSmall" style={[styles.boldText, { color: theme.colors.onSurface }]} numberOfLines={1}>
+                      {selectedCustomer ? selectedCustomer.name : 'Walkin-customer'}
+                    </Text>
+                  </View>
+                  {selectedCustomer && selectedCustomer.phone && selectedCustomer.phone !== '0000000000' ? (
+                    <Text style={{ color: theme.colors.onSurfaceVariant, fontSize: 11, marginTop: 1 }}>
+                      {selectedCustomer.phone}
+                    </Text>
+                  ) : null}
+                </View>
+              </View>
+              <Button
+                mode="outlined"
+                onPress={() => setCustomerDialogVisible(true)}
+                compact
+                labelStyle={{ fontSize: 11, marginVertical: 2, marginHorizontal: 8 }}
+                style={{ height: 28, justifyContent: 'center' }}
+              >
+                Change
+              </Button>
             </Card.Content>
           </Card>
-        )}
 
-        <SegmentedButtons
-          value={activeTab}
-          onValueChange={(val) => setActiveTab(val as 'builder' | 'history')}
-          buttons={[
-            {
-              value: 'builder',
-              label: 'New Invoice',
-              icon: 'plus-circle-outline',
-            },
-            {
-              value: 'history',
-              label: `All Invoices (${invoices.length})`,
-              icon: 'history',
-            },
-          ]}
-          style={{ marginBottom: 8 }}
-        />
-      </View>
+          {/* Cart Listing Header */}
+          <View style={styles.sectionHeader}>
+            <Text variant="titleMedium" style={styles.boldText}>
+              Billing Items {cart.length > 0 ? `(${cart.length})` : ''}
+            </Text>
+            <Button
+              mode="contained"
+              icon="plus"
+              onPress={() => { setProductSearchQuery(''); setProductDialogVisible(true); }}
+              compact
+            >
+              Add Item
+            </Button>
+          </View>
 
-      {activeTab === 'history' ? (
-        <ScrollView
-          ref={historyScrollViewRef}
-          style={{ flex: 1 }}
-          contentContainerStyle={{ paddingHorizontal: width > 700 ? 16 : 10, paddingBottom: 80 }}
-          onScroll={handleHistoryScroll}
-          scrollEventThrottle={16}
-        >
-          <View style={{ width: '100%', maxWidth: 700, alignSelf: 'center', gap: 12 }}>
-            {/* Search Bar + Filter Icon Row */}
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                <TextInput
-                  label="Search All Invoices"
-                  placeholder="Search by bill #, customer name, mobile..."
-                  value={historySearch}
-                  onChangeText={setHistorySearch}
-                  mode="outlined"
-                  left={<TextInput.Icon icon="magnify" />}
-                  right={historySearch ? <TextInput.Icon icon="close" onPress={() => setHistorySearch('')} /> : null}
-                  style={{ flex: 1, backgroundColor: theme.colors.surface }}
-                />
-                <IconButton
-                  icon={hasActiveFilters ? "filter-check" : "filter-variant"}
-                  mode={hasActiveFilters ? "contained" : "outlined"}
-                  iconColor={hasActiveFilters ? "#FFFFFF" : theme.colors.primary}
-                  containerColor={hasActiveFilters ? theme.colors.primary : undefined}
-                  size={26}
-                  onPress={() => setFilterModalVisible(true)}
-                  style={{ marginTop: 6 }}
-                />
-              </View>
-
-              {/* Active Filter Chips Bar (if any filters active) */}
-              {hasActiveFilters && (
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                  {historyDateFilter !== 'all' && (
-                    <Chip
-                      icon="calendar"
-                      onClose={() => setHistoryDateFilter('all')}
-                      style={{ backgroundColor: theme.colors.primaryContainer }}
-                      textStyle={{ fontSize: 12, fontWeight: 'bold' }}
-                    >
-                      {historyDateFilter === 'today' ? 'Today' : historyDateFilter === 'week' ? 'Past 7 Days' : 'This Month'}
-                    </Chip>
-                  )}
-                  {historyStatusFilter !== 'all' && (
-                    <Chip
-                      icon="check-circle-outline"
-                      onClose={() => setHistoryStatusFilter('all')}
-                      style={{ backgroundColor: theme.colors.primaryContainer }}
-                      textStyle={{ fontSize: 12, fontWeight: 'bold' }}
-                    >
-                      Status: {historyStatusFilter}
-                    </Chip>
-                  )}
-                  {historyGstFilter !== 'all' && (
-                    <Chip
-                      icon="receipt-text-outline"
-                      onClose={() => setHistoryGstFilter('all')}
-                      style={{ backgroundColor: theme.colors.primaryContainer }}
-                      textStyle={{ fontSize: 12, fontWeight: 'bold' }}
-                    >
-                      {historyGstFilter === 'gst' ? 'GST Bills Only' : 'Non-GST Only'}
-                    </Chip>
-                  )}
-                  <Button compact mode="text" onPress={() => { setHistoryDateFilter('all'); setHistoryStatusFilter('all'); setHistoryGstFilter('all'); }}>
-                    Clear Filters
-                  </Button>
-                </View>
-              )}
-
-              {/* Compact Summary Bar */}
-              <Card style={{ backgroundColor: theme.colors.primaryContainer, marginVertical: 2 }}>
-                <Card.Content style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 8, paddingHorizontal: 12 }}>
-                  <Text variant="titleSmall" style={{ color: theme.colors.onPrimaryContainer, fontWeight: 'bold' }}>
-                    Matching: {filteredInvoices.length} Invoices {historyGstFilter === 'gst' ? '(GST Only)' : historyGstFilter === 'nongst' ? '(Non-GST Only)' : ''}
-                  </Text>
-                  <Text variant="titleMedium" style={{ color: theme.colors.onPrimaryContainer, fontWeight: 'bold' }}>
-                    Total: {organization.currency} {filteredTotalRevenue.toFixed(2)}
-                  </Text>
+          {/* Cart Items List */}
+          {cart.length === 0 ? (
+            <Card style={styles.emptyCard} mode="outlined">
+              <Card.Content style={styles.centerAlign}>
+                <IconButton icon="cart-plus" size={28} iconColor={theme.colors.outline} style={{ margin: 0 }} />
+                <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant, marginTop: 2 }}>
+                  No items added to invoice yet. Tap "+ Add Item" to begin billing.
+                </Text>
+              </Card.Content>
+            </Card>
+          ) : (
+            cart.map((item) => (
+              <Card
+                key={item.product.id}
+                style={styles.cartCard}
+                mode="outlined"
+                onPress={() => {
+                  setEditingCartItem({
+                    productId: item.product.id,
+                    name: item.product.name,
+                    basePrice: item.product.price,
+                    baseUnit: item.product.unit || 'Pcs',
+                    quantity: item.quantity.toString(),
+                    unit: item.unit,
+                  });
+                  setEditItemDialogVisible(true);
+                }}
+              >
+                <Card.Content style={styles.cartCardContent}>
+                  <View style={{ flex: 1, marginRight: 8 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap' }}>
+                      <Text variant="titleMedium" style={[styles.boldText, { flexShrink: 1 }]} numberOfLines={1}>
+                        {item.product.name}
+                      </Text>
+                      <IconButton
+                        icon="pencil-outline"
+                        size={14}
+                        style={{ margin: 0, marginLeft: 2, padding: 0, width: 20, height: 20 }}
+                        iconColor={theme.colors.primary}
+                      />
+                    </View>
+                    <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
+                      {organization.currency} {item.price.toFixed(2)} / {item.unit}
+                      {item.unit.toLowerCase() !== (item.product.unit || 'pcs').toLowerCase() && (
+                        <Text style={{ fontStyle: 'italic', fontSize: 11 }}>
+                          {` (Base: ${organization.currency}${item.product.price.toFixed(2)}/${item.product.unit || 'Pcs'})`}
+                        </Text>
+                      )}
+                    </Text>
+                  </View>
+                  <View style={styles.cartActions}>
+                    <IconButton
+                      icon="minus"
+                      size={20}
+                      mode="outlined"
+                      style={styles.qtyBtn}
+                      onPress={() => updateQuantity(item.product.id, true)}
+                    />
+                    <Text variant="titleMedium" style={[styles.boldText, styles.qtyText]}>
+                      {item.quantity}
+                    </Text>
+                    <IconButton
+                      icon="plus"
+                      size={20}
+                      mode="outlined"
+                      style={styles.qtyBtn}
+                      onPress={() => updateQuantity(item.product.id, false)}
+                    />
+                    <IconButton
+                      icon="trash-can-outline"
+                      size={20}
+                      iconColor={theme.colors.error}
+                      onPress={() => removeFromCart(item.product.id)}
+                    />
+                  </View>
                 </Card.Content>
               </Card>
+            ))
+          )}
 
-              {/* Invoices History List */}
-              {filteredInvoices.length === 0 ? (
-                <Card style={styles.emptyCard} mode="outlined">
-                  <Card.Content style={styles.centerAlign}>
-                    <IconButton icon="file-search-outline" size={40} iconColor={theme.colors.outline} />
-                    <Text variant="titleMedium" style={{ marginTop: 8, color: theme.colors.onSurfaceVariant }}>
-                      No matching invoices found
+          {/* Bill Breakdown Card */}
+          <View style={styles.sectionHeader}>
+            <Text variant="titleMedium" style={styles.boldText}>
+              Bill Breakdown
+            </Text>
+          </View>
+
+          <Card style={[styles.card, { marginBottom: 12 }]} mode="outlined">
+            <Card.Content style={{ paddingVertical: 10, paddingHorizontal: 12, gap: 10 }}>
+              {/* Dual Mode Discount Input (% vs ₹) */}
+              <View style={{ gap: 6 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <Text variant="labelMedium" style={{ fontWeight: 'bold', color: theme.colors.onSurfaceVariant }}>
+                    DISCOUNT
+                  </Text>
+                  <SegmentedButtons
+                    value={discountMode}
+                    onValueChange={(val) => {
+                      setDiscountMode(val as 'percent' | 'flat');
+                      setDiscount('');
+                    }}
+                    density="small"
+                    buttons={[
+                      { value: 'percent', label: '% Off' },
+                      { value: 'flat', label: `${organization.currency || '₹'} Flat` },
+                    ]}
+                    style={{ maxWidth: 170 }}
+                  />
+                </View>
+
+                <TextInput
+                  label={discountMode === 'percent' ? 'Discount Percentage (%)' : `Discount Amount (${organization.currency || '₹'})`}
+                  value={discount}
+                  dense={true}
+                  onChangeText={(text) => {
+                    const sanitized = text.replace(/,/g, '.').replace(/[^0-9.]/g, '');
+                    if (sanitized === '') {
+                      setDiscount('');
+                      return;
+                    }
+                    const val = parseFloat(sanitized) || 0;
+                    if (discountMode === 'percent') {
+                      if (val > 100) {
+                        setDiscount('100');
+                      } else {
+                        setDiscount(sanitized);
+                      }
+                    } else {
+                      if (val > subtotal + totalTax) {
+                        setDiscount((subtotal + totalTax).toFixed(2));
+                      } else {
+                        setDiscount(sanitized);
+                      }
+                    }
+                  }}
+                  keyboardType={Platform.OS === 'ios' && __DEV__ ? 'default' : 'decimal-pad'}
+                  mode="outlined"
+                  style={{ backgroundColor: '#FFF' }}
+                  left={<TextInput.Icon icon={discountMode === 'percent' ? 'percent' : 'currency-inr'} />}
+                  right={discount ? <TextInput.Icon icon="close" onPress={() => setDiscount('')} /> : null}
+                />
+                {discountVal > 0 ? (
+                  <Text variant="bodySmall" style={{ color: theme.colors.error, marginTop: -2, marginLeft: 4, fontWeight: 'bold' }}>
+                    {`Applied Discount: -${organization.currency} ${discountVal.toFixed(2)}${discountMode === 'percent' ? ` (${discount}%)` : ''}`}
+                  </Text>
+                ) : null}
+              </View>
+
+              {/* Cash Round-Off Toggle */}
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 2 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <Text variant="bodyMedium" style={{ fontWeight: '500' }}>Cash Round-Off</Text>
+                  <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
+                    (to nearest {organization.currency || '₹'}1)
+                  </Text>
+                </View>
+                <Chip
+                  selected={enableRoundOff}
+                  onPress={() => setEnableRoundOff(!enableRoundOff)}
+                  compact
+                  style={{ backgroundColor: enableRoundOff ? theme.colors.primaryContainer : '#F0F0F0' }}
+                  textStyle={{ fontSize: 11, fontWeight: 'bold', color: enableRoundOff ? theme.colors.primary : '#666' }}
+                >
+                  {enableRoundOff ? 'ON' : 'OFF'}
+                </Chip>
+              </View>
+
+              <Divider style={{ marginVertical: 2 }} />
+
+              {/* Calculations Rows */}
+              <View style={styles.calcRow}>
+                <Text variant="bodyMedium">Subtotal</Text>
+                <Text variant="bodyMedium" numberOfLines={1} adjustsFontSizeToFit>{organization.currency} {subtotal.toFixed(2)}</Text>
+              </View>
+
+              {organization.showGstOnBill && organization.gstNumber && totalTax > 0 ? (
+                <>
+                  <View style={styles.calcRow}>
+                    <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
+                      CGST (Central GST)
                     </Text>
-                    <Text variant="bodySmall" style={{ color: theme.colors.outline, textAlign: 'center', marginTop: 4 }}>
-                      Try adjusting your search terms or date filter options.
+                    <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }} numberOfLines={1} adjustsFontSizeToFit>
+                      {organization.currency} {cgst.toFixed(2)}
                     </Text>
-                  </Card.Content>
-                </Card>
-              ) : (
-                filteredInvoices.map((inv) => {
-                  const isPaid = inv.paymentStatus === 'Paid';
-                  const dateStr = formatInvoiceDateTime(inv.date);
+                  </View>
+                  <View style={styles.calcRow}>
+                    <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
+                      SGST (State GST)
+                    </Text>
+                    <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }} numberOfLines={1} adjustsFontSizeToFit>
+                      {organization.currency} {sgst.toFixed(2)}
+                    </Text>
+                  </View>
+                </>
+              ) : null}
 
-                  return (
-                    <Card
-                      key={inv.id}
-                      style={[styles.card, { marginBottom: 8 }]}
-                      mode="outlined"
-                      onPress={() => navigation.navigate('InvoiceDetail', { invoiceId: inv.id })}
-                    >
-                      <Card.Content style={{ paddingVertical: 10, paddingHorizontal: 12, gap: 4 }}>
-                        {/* Row 1: Bill # + Customer Name | Amount */}
-                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                          <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 6, marginRight: 8 }}>
-                            <Text variant="titleSmall" style={styles.boldText} numberOfLines={1}>
-                              {inv.invoiceNumber}
-                            </Text>
-                            <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }} numberOfLines={1}>
-                              • {inv.customerName || 'Walk-in'}
-                            </Text>
-                          </View>
-                          <Text variant="titleMedium" style={[styles.boldText, { color: theme.colors.primary }]} numberOfLines={1}>
-                            {organization.currency} {inv.grandTotal.toFixed(2)}
-                          </Text>
-                        </View>
+              {discountVal > 0 ? (
+                <View style={styles.calcRow}>
+                  <Text variant="bodySmall" style={{ color: theme.colors.error }}>Discount</Text>
+                  <Text variant="bodySmall" style={{ color: theme.colors.error }} numberOfLines={1} adjustsFontSizeToFit>
+                    -{organization.currency} {discountVal.toFixed(2)}
+                  </Text>
+                </View>
+              ) : null}
 
-                        {/* Row 2: Date + Status Badge | Icon Buttons */}
-                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 2 }}>
-                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
-                            <Text variant="bodySmall" style={{ color: theme.colors.outline, fontSize: 11 }}>
-                              {dateStr}
-                            </Text>
-                            <View
-                              style={{
-                                paddingHorizontal: 6,
-                                paddingVertical: 1,
-                                borderRadius: 8,
-                                backgroundColor: isPaid ? theme.colors.success + '20' : theme.colors.warning + '20',
-                              }}
-                            >
-                              <Text style={{ fontSize: 10, fontWeight: 'bold', color: isPaid ? theme.colors.success : theme.colors.warning }}>
-                                {inv.paymentStatus} ({inv.paymentMethod})
-                              </Text>
-                            </View>
-                            {((inv.taxTotal || 0) > 0 || ((inv.cgstTotal || 0) + (inv.sgstTotal || 0)) > 0) ? (
-                              <View
-                                style={{
-                                  paddingHorizontal: 6,
-                                  paddingVertical: 1,
-                                  borderRadius: 8,
-                                  backgroundColor: '#E8F5E9',
-                                }}
-                              >
-                                <Text style={{ fontSize: 10, fontWeight: 'bold', color: '#2E7D32' }}>
-                                  GST
-                                </Text>
-                              </View>
-                            ) : null}
-                          </View>
+              {enableRoundOff && Math.abs(roundOffDiff) > 0.001 ? (
+                <View style={styles.calcRow}>
+                  <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>Round-off Adjustment</Text>
+                  <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }} numberOfLines={1} adjustsFontSizeToFit>
+                    {roundOffDiff >= 0 ? '+' : ''}{organization.currency} {roundOffDiff.toFixed(2)}
+                  </Text>
+                </View>
+              ) : null}
 
-                          <View style={{ flexDirection: 'row', alignItems: 'center', marginVertical: -8, marginRight: -8 }}>
-                            <IconButton
-                              icon="eye-outline"
-                              size={20}
-                              iconColor={theme.colors.primary}
-                              onPress={() => navigation.navigate('InvoiceDetail', { invoiceId: inv.id })}
-                            />
-                            <IconButton
-                              icon="printer-outline"
-                              size={20}
-                              iconColor={theme.colors.secondary || theme.colors.primary}
-                              onPress={async () => {
-                                const isReady = await verifyPrinterConnectionOrRedirect(navigation);
-                                if (isReady) {
-                                  navigation.navigate('PrintPreview', { invoiceId: inv.id, invoice: inv });
-                                }
-                              }}
-                            />
-                          </View>
-                        </View>
-                      </Card.Content>
-                    </Card>
-                  );
-                })
-              )}
+              <Divider />
+
+              <View style={styles.calcRow}>
+                <Text variant="titleMedium" style={styles.boldText}>Grand Total</Text>
+                <Text variant="titleLarge" style={[styles.boldText, { color: theme.colors.primary }]} numberOfLines={1} adjustsFontSizeToFit>
+                  {organization.currency} {grandTotal.toFixed(2)}
+                </Text>
+              </View>
+            </Card.Content>
+          </Card>
+        </View>
+      </ScrollView>
+
+      {/* Sticky Bottom Checkout Dock */}
+      <View style={[styles.stickyCheckoutDock, { backgroundColor: theme.colors.surface }]}>
+        <View style={{ width: '100%', maxWidth: 700, alignSelf: 'center' }}>
+          {/* Row 1: Payment Method & Payment Status */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6, gap: 6 }}>
+            {/* Payment Method Selector */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+              <Text style={{ fontSize: 10, fontWeight: '700', color: theme.colors.onSurfaceVariant, marginRight: 2, letterSpacing: 0.5 }}>
+                PAY:
+              </Text>
+              {(['UPI', 'Cash', 'Card'] as const).map((method) => (
+                <Button
+                  key={method}
+                  mode={paymentMethod === method ? 'contained' : 'outlined'}
+                  onPress={() => setPaymentMethod(method)}
+                  compact
+                  style={{ borderRadius: 6, minWidth: 44, marginHorizontal: 1 }}
+                  contentStyle={{ height: 26, paddingHorizontal: 6 }}
+                  labelStyle={{ fontSize: 11, marginVertical: 0, marginHorizontal: 0, fontWeight: paymentMethod === method ? '700' : '500' }}
+                >
+                  {method}
+                </Button>
+              ))}
             </View>
-          </ScrollView>
-        ) : (
-          <View style={{ flex: 1 }}>
-            {/* Scrollable Middle Content: Customer Card, Items List, Bill Breakdown */}
-            <ScrollView
-              style={{ flex: 1 }}
-              contentContainerStyle={{ paddingHorizontal: width > 700 ? 16 : 10, paddingTop: 4, paddingBottom: 16 }}
-              keyboardShouldPersistTaps="handled"
-            >
-              <View style={{ width: '100%', maxWidth: 700, alignSelf: 'center' }}>
-                {/* Compact Customer Selection Card */}
-                <Card style={[styles.compactCard, { marginBottom: 8 }]} mode="outlined">
-                  <Card.Content style={styles.compactCustomerContent}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
-                      <Avatar.Icon size={30} icon="account" style={{ backgroundColor: theme.colors.primaryContainer }} color={theme.colors.primary} />
-                      <View style={{ flex: 1 }}>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                          <Text style={{ fontSize: 10, fontWeight: '700', color: theme.colors.onSurfaceVariant, letterSpacing: 0.5 }}>
-                            CUSTOMER
-                          </Text>
-                          <Text variant="titleSmall" style={[styles.boldText, { color: theme.colors.onSurface }]} numberOfLines={1}>
-                            {selectedCustomer ? selectedCustomer.name : 'Walkin-customer'}
-                          </Text>
-                        </View>
-                        {selectedCustomer && selectedCustomer.phone && selectedCustomer.phone !== '0000000000' ? (
-                          <Text style={{ color: theme.colors.onSurfaceVariant, fontSize: 11, marginTop: 1 }}>
-                            {selectedCustomer.phone}
-                          </Text>
-                        ) : null}
-                      </View>
-                    </View>
-                    <Button
-                      mode="outlined"
-                      onPress={() => setCustomerDialogVisible(true)}
-                      compact
-                      labelStyle={{ fontSize: 11, marginVertical: 2, marginHorizontal: 8 }}
-                      style={{ height: 28, justifyContent: 'center' }}
-                    >
-                      Change
-                    </Button>
-                  </Card.Content>
-                </Card>
 
-                {/* Cart Listing Header */}
-                <View style={styles.sectionHeader}>
-                  <Text variant="titleMedium" style={styles.boldText}>
-                    Billing Items {cart.length > 0 ? `(${cart.length})` : ''}
-                  </Text>
-                  <Button mode="contained" icon="plus" onPress={() => { setProductSearchQuery(''); setProductDialogVisible(true); }} compact>
-                    Add Item
-                  </Button>
-                </View>
-
-                {/* Cart Items List */}
-                {cart.length === 0 ? (
-                  <Card style={styles.emptyCard} mode="outlined">
-                    <Card.Content style={styles.centerAlign}>
-                      <IconButton icon="cart-plus" size={24} iconColor={theme.colors.outline} style={{ margin: 0 }} />
-                      <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant, marginTop: 2 }}>
-                        No items added to invoice yet
-                      </Text>
-                    </Card.Content>
-                  </Card>
-                ) : (
-                  cart.map((item) => (
-                    <Card
-                      key={item.product.id}
-                      style={styles.cartCard}
-                      mode="outlined"
-                      onPress={() => {
-                        setEditingCartItem({
-                          productId: item.product.id,
-                          name: item.product.name,
-                          basePrice: item.product.price,
-                          baseUnit: item.product.unit || 'Pcs',
-                          quantity: item.quantity.toString(),
-                          unit: item.unit,
-                        });
-                        setEditItemDialogVisible(true);
-                      }}
-                    >
-                      <Card.Content style={styles.cartCardContent}>
-                        <View style={{ flex: 1, marginRight: 8 }}>
-                          <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap' }}>
-                            <Text variant="titleMedium" style={[styles.boldText, { flexShrink: 1 }]} numberOfLines={1}>
-                              {item.product.name}
-                            </Text>
-                            <IconButton
-                              icon="pencil-outline"
-                              size={14}
-                              style={{ margin: 0, marginLeft: 2, padding: 0, width: 20, height: 20 }}
-                              iconColor={theme.colors.primary}
-                            />
-                          </View>
-                          <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
-                            {organization.currency} {item.price.toFixed(2)} / {item.unit}
-                            {item.unit.toLowerCase() !== (item.product.unit || 'pcs').toLowerCase() && (
-                              <Text style={{ fontStyle: 'italic', fontSize: 11 }}>
-                                {` (Base: ${organization.currency}${item.product.price.toFixed(2)}/${item.product.unit || 'Pcs'})`}
-                              </Text>
-                            )}
-                          </Text>
-                        </View>
-                        <View style={styles.cartActions}>
-                          <IconButton
-                            icon="minus"
-                            size={20}
-                            mode="outlined"
-                            style={styles.qtyBtn}
-                            onPress={() => updateQuantity(item.product.id, true)}
-                          />
-                          <Text variant="titleMedium" style={[styles.boldText, styles.qtyText]}>
-                            {item.quantity}
-                          </Text>
-                          <IconButton
-                            icon="plus"
-                            size={20}
-                            mode="outlined"
-                            style={styles.qtyBtn}
-                            onPress={() => updateQuantity(item.product.id, false)}
-                          />
-                          <IconButton
-                            icon="trash-can-outline"
-                            size={20}
-                            iconColor={theme.colors.error}
-                            onPress={() => removeFromCart(item.product.id)}
-                          />
-                        </View>
-                      </Card.Content>
-                    </Card>
-                  ))
-                )}
-
-                {/* Bill Breakdown */}
-                <View style={styles.sectionHeader}>
-                  <Text variant="titleMedium" style={styles.boldText}>
-                    Bill Breakdown
-                  </Text>
-                </View>
-
-                <Card style={[styles.card, { marginBottom: 8 }]} mode="outlined">
-                  <Card.Content style={{ paddingVertical: 10, paddingHorizontal: 12, gap: 8 }}>
-                    {/* Discount Input */}
-                    <TextInput
-                      label="Discount (%)"
-                      value={discount}
-                      dense={true}
-                      onChangeText={(text) => {
-                        const sanitized = text.replace(/,/g, '.').replace(/[^0-9.]/g, '');
-                        if (sanitized === '') {
-                          setDiscount('');
-                          return;
-                        }
-                        const val = parseFloat(sanitized) || 0;
-                        if (val > 100) {
-                          setDiscount('100');
-                        } else {
-                          setDiscount(sanitized);
-                        }
-                      }}
-                      keyboardType={Platform.OS === 'ios' && __DEV__ ? 'default' : 'decimal-pad'}
-                      mode="outlined"
-                      style={{ backgroundColor: '#FFF' }}
-                      left={<TextInput.Icon icon="percent" />}
-                      right={discount ? <TextInput.Icon icon="close" onPress={() => setDiscount('')} /> : null}
-                    />
-                    {parseFloat(discount) > 0 ? (
-                      <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant, marginTop: -4, marginLeft: 4 }}>
-                        {`Calculated Discount: ${organization.currency} ${discountVal.toFixed(2)} (${discount}%)`}
-                      </Text>
-                    ) : null}
-
-                    {/* Calculations Breakdown */}
-                    <View style={styles.calcRow}>
-                      <Text variant="bodyMedium">Subtotal</Text>
-                      <Text variant="bodyMedium" numberOfLines={1} adjustsFontSizeToFit>{organization.currency} {subtotal.toFixed(2)}</Text>
-                    </View>
-
-                    {organization.showGstOnBill && organization.gstNumber && totalTax > 0 ? (
-                      <>
-                        <View style={styles.calcRow}>
-                          <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
-                            CGST (Central GST)
-                          </Text>
-                          <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }} numberOfLines={1} adjustsFontSizeToFit>
-                            {organization.currency} {cgst.toFixed(2)}
-                          </Text>
-                        </View>
-                        <View style={styles.calcRow}>
-                          <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
-                            SGST (State GST)
-                          </Text>
-                          <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }} numberOfLines={1} adjustsFontSizeToFit>
-                            {organization.currency} {sgst.toFixed(2)}
-                          </Text>
-                        </View>
-                      </>
-                    ) : null}
-
-                    {discountVal > 0 ? (
-                      <View style={styles.calcRow}>
-                        <Text variant="bodySmall" style={{ color: theme.colors.error }}>Discount</Text>
-                        <Text variant="bodySmall" style={{ color: theme.colors.error }} numberOfLines={1} adjustsFontSizeToFit>
-                          -{organization.currency} {discountVal.toFixed(2)}
-                        </Text>
-                      </View>
-                    ) : null}
-
-                    <Divider />
-
-                    <View style={styles.calcRow}>
-                      <Text variant="titleMedium" style={styles.boldText}>Grand Total</Text>
-                      <Text variant="titleLarge" style={[styles.boldText, { color: theme.colors.primary }]} numberOfLines={1} adjustsFontSizeToFit>
-                        {organization.currency} {grandTotal.toFixed(2)}
-                      </Text>
-                    </View>
-                  </Card.Content>
-                </Card>
-              </View>
-            </ScrollView>
-
-            {/* Sticky Bottom Checkout Dock */}
-            <View style={[styles.stickyCheckoutDock, { backgroundColor: theme.colors.surface }]}>
-              <View style={{ width: '100%', maxWidth: 700, alignSelf: 'center' }}>
-                {/* Row 1: Payment Method & Payment Status */}
-                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6, gap: 6 }}>
-                  {/* Payment Method Selector */}
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                    <Text style={{ fontSize: 10, fontWeight: '700', color: theme.colors.onSurfaceVariant, marginRight: 2, letterSpacing: 0.5 }}>
-                      PAY:
-                    </Text>
-                    {(['UPI', 'Cash', 'Card'] as const).map((method) => (
-                      <Button
-                        key={method}
-                        mode={paymentMethod === method ? 'contained' : 'outlined'}
-                        onPress={() => setPaymentMethod(method)}
-                        compact
-                        style={{ borderRadius: 6, minWidth: 44, marginHorizontal: 1 }}
-                        contentStyle={{ height: 26, paddingHorizontal: 6 }}
-                        labelStyle={{ fontSize: 11, marginVertical: 0, marginHorizontal: 0, fontWeight: paymentMethod === method ? '700' : '500' }}
-                      >
-                        {method}
-                      </Button>
-                    ))}
-                  </View>
-
-                  {/* Payment Status Selector */}
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                    <Button
-                      mode={paymentStatus === 'Paid' ? 'contained' : 'outlined'}
-                      buttonColor={paymentStatus === 'Paid' ? theme.colors.success : undefined}
-                      textColor={paymentStatus === 'Paid' ? '#FFF' : theme.colors.success}
-                      onPress={() => setPaymentStatus('Paid')}
-                      compact
-                      style={{ borderRadius: 6, borderColor: theme.colors.success, marginHorizontal: 1 }}
-                      contentStyle={{ height: 26, paddingHorizontal: 8 }}
-                      labelStyle={{ fontSize: 11, marginVertical: 0, marginHorizontal: 0, fontWeight: paymentStatus === 'Paid' ? '700' : '500' }}
-                    >
-                      Paid
-                    </Button>
-                    <Button
-                      mode={paymentStatus === 'Unpaid' ? 'contained' : 'outlined'}
-                      buttonColor={paymentStatus === 'Unpaid' ? theme.colors.warning : undefined}
-                      textColor={paymentStatus === 'Unpaid' ? '#FFF' : theme.colors.warning}
-                      onPress={() => setPaymentStatus('Unpaid')}
-                      compact
-                      style={{ borderRadius: 6, borderColor: theme.colors.warning, marginHorizontal: 1 }}
-                      contentStyle={{ height: 26, paddingHorizontal: 8 }}
-                      labelStyle={{ fontSize: 11, marginVertical: 0, marginHorizontal: 0, fontWeight: paymentStatus === 'Unpaid' ? '700' : '500' }}
-                    >
-                      Unpaid
-                    </Button>
-                  </View>
-                </View>
-
-                {/* Row 2: Live Grand Total + Reset & Generate Bill Buttons */}
-                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-                  {/* Total Summary */}
-                  <View style={{ flex: 1 }}>
-                    <Text style={{ fontSize: 10, color: theme.colors.onSurfaceVariant, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                      Total ({cart.reduce((sum, item) => sum + item.quantity, 0)} {cart.reduce((sum, item) => sum + item.quantity, 0) === 1 ? 'item' : 'items'})
-                    </Text>
-                    <Text
-                      variant="titleLarge"
-                      style={[styles.boldText, { color: theme.colors.primary, lineHeight: 28, fontSize: 20 }]}
-                      numberOfLines={1}
-                      adjustsFontSizeToFit
-                    >
-                      {organization.currency} {grandTotal.toFixed(2)}
-                    </Text>
-                  </View>
-
-                  {/* Actions: Reset Draft & Generate Bill */}
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                    <Button
-                      mode="outlined"
-                      icon={({ color }) => <Icon source="refresh" size={16} color={color} />}
-                      textColor={theme.colors.error}
-                      style={{ borderColor: theme.colors.error + '60', borderRadius: 8 }}
-                      contentStyle={{ height: 38, paddingHorizontal: 8, flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}
-                      labelStyle={{ fontSize: 12, marginVertical: 0, marginLeft: 6, marginRight: 8, lineHeight: 18, textAlignVertical: 'center', includeFontPadding: false }}
-                      compact
-                      onPress={handleResetInvoiceData}
-                    >
-                      Reset
-                    </Button>
-                    <Button
-                      mode="contained"
-                      icon={({ color }) => <Icon source="check-circle" size={18} color={color} />}
-                      compact
-                      style={{ borderRadius: 8 }}
-                      contentStyle={{ height: 38, paddingHorizontal: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}
-                      labelStyle={{ fontSize: 13, fontWeight: 'bold', marginVertical: 0, marginLeft: 8, marginRight: 10, lineHeight: 18, textAlignVertical: 'center', includeFontPadding: false }}
-                      disabled={cart.length === 0}
-                      onPress={handleSaveInvoice}
-                    >
-                      Generate Bill
-                    </Button>
-                  </View>
-                </View>
-              </View>
+            {/* Payment Status Selector */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+              <Button
+                mode={paymentStatus === 'Paid' ? 'contained' : 'outlined'}
+                buttonColor={paymentStatus === 'Paid' ? theme.colors.success : undefined}
+                textColor={paymentStatus === 'Paid' ? '#FFF' : theme.colors.success}
+                onPress={() => setPaymentStatus('Paid')}
+                compact
+                style={{ borderRadius: 6, borderColor: theme.colors.success, marginHorizontal: 1 }}
+                contentStyle={{ height: 26, paddingHorizontal: 8 }}
+                labelStyle={{ fontSize: 11, marginVertical: 0, marginHorizontal: 0, fontWeight: paymentStatus === 'Paid' ? '700' : '500' }}
+              >
+                Paid
+              </Button>
+              <Button
+                mode={paymentStatus === 'Unpaid' ? 'contained' : 'outlined'}
+                buttonColor={paymentStatus === 'Unpaid' ? theme.colors.warning : undefined}
+                textColor={paymentStatus === 'Unpaid' ? '#FFF' : theme.colors.warning}
+                onPress={() => setPaymentStatus('Unpaid')}
+                compact
+                style={{ borderRadius: 6, borderColor: theme.colors.warning, marginHorizontal: 1 }}
+                contentStyle={{ height: 26, paddingHorizontal: 8 }}
+                labelStyle={{ fontSize: 11, marginVertical: 0, marginHorizontal: 0, fontWeight: paymentStatus === 'Unpaid' ? '700' : '500' }}
+              >
+                Unpaid
+              </Button>
             </View>
           </View>
-        )}
+
+          {/* Row 2: Live Grand Total + Action Buttons */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
+            {/* Total Summary */}
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontSize: 10, color: theme.colors.onSurfaceVariant, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                Total ({cart.reduce((sum, item) => sum + item.quantity, 0)} {cart.reduce((sum, item) => sum + item.quantity, 0) === 1 ? 'item' : 'items'})
+              </Text>
+              <Text
+                variant="titleLarge"
+                style={[styles.boldText, { color: theme.colors.primary, lineHeight: 28, fontSize: 20 }]}
+                numberOfLines={1}
+                adjustsFontSizeToFit
+              >
+                {organization.currency} {grandTotal.toFixed(2)}
+              </Text>
+            </View>
+
+            {/* Actions: Reset + Preview + Save & Print */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+              <Button
+                mode="outlined"
+                icon={({ color }) => <Icon source="refresh" size={15} color={color} />}
+                textColor={theme.colors.error}
+                style={{ borderColor: theme.colors.error + '60', borderRadius: 8, minWidth: 46 }}
+                contentStyle={{ height: 38, paddingHorizontal: 4 }}
+                labelStyle={{ fontSize: 11, marginVertical: 0, marginLeft: 2, marginRight: 4 }}
+                compact
+                onPress={handleResetInvoiceData}
+              >
+                Reset
+              </Button>
+
+              <Button
+                mode="outlined"
+                icon={({ color }) => <Icon source="eye-outline" size={16} color={color} />}
+                style={{ borderRadius: 8 }}
+                contentStyle={{ height: 38, paddingHorizontal: 6 }}
+                labelStyle={{ fontSize: 11.5, marginVertical: 0, marginLeft: 4, marginRight: 6 }}
+                disabled={cart.length === 0 || isPrinterLocked}
+                compact
+                onPress={() => handleSaveInvoice(false)}
+              >
+                Preview
+              </Button>
+
+              <Button
+                mode="contained"
+                icon={({ color }) => <Icon source="printer" size={17} color={color} />}
+                compact
+                style={{ borderRadius: 8 }}
+                contentStyle={{ height: 38, paddingHorizontal: 8 }}
+                labelStyle={{ fontSize: 12, fontWeight: 'bold', marginVertical: 0, marginLeft: 4, marginRight: 8 }}
+                disabled={cart.length === 0 || isPrinterLocked}
+                onPress={() => handleSaveInvoice(true)}
+              >
+                Save & Print
+              </Button>
+            </View>
+          </View>
+        </View>
+      </View>
 
       {/* PORTALS FOR DIALOG SELECTORS */}
       <Portal>
@@ -1262,7 +1122,6 @@ export const InvoiceBuilderScreen = ({ navigation, route }: any) => {
                   const targetProd = products.find((p: Product) => p.id === editingCartItem.productId);
                   const availableStock = targetProd ? (targetProd.stockQuantity ?? 0) : 0;
                   
-                  // Convert quantity if units differ (e.g. if stock is in KG but selected unit is GM)
                   const baseUnit = editingCartItem.baseUnit.toLowerCase();
                   const targetUnit = editingCartItem.unit.toLowerCase();
                   let stockInTargetUnit = availableStock;
@@ -1317,12 +1176,46 @@ export const InvoiceBuilderScreen = ({ navigation, route }: any) => {
           </Dialog.Actions>
         </Dialog>
 
-        {/* Customer Selector Dialog */}
+        {/* Customer Selector Dialog with Inline Quick-Add */}
         <Dialog visible={customerDialogVisible} onDismiss={() => setCustomerDialogVisible(false)}>
           <Dialog.Title>Select Customer</Dialog.Title>
+
+          <TextInput
+            placeholder="Search by name or 10-digit mobile..."
+            value={customerSearchQuery}
+            onChangeText={setCustomerSearchQuery}
+            mode="outlined"
+            dense
+            style={{ marginHorizontal: 24, marginBottom: 8, backgroundColor: '#FFFFFF' }}
+            left={<TextInput.Icon icon="magnify" />}
+            right={customerSearchQuery ? <TextInput.Icon icon="close" onPress={() => setCustomerSearchQuery('')} /> : null}
+          />
+
+          {customerSearchQuery.trim().length > 0 && !customers.some(c => c.name.toLowerCase() === customerSearchQuery.trim().toLowerCase() || c.phone === customerSearchQuery.trim()) && (
+            <Card
+              style={{ marginHorizontal: 24, marginBottom: 8, backgroundColor: theme.colors.primaryContainer, borderColor: theme.colors.primary }}
+              mode="outlined"
+              onPress={handleQuickAddCustomer}
+            >
+              <Card.Content style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 8, paddingHorizontal: 12 }}>
+                <View style={{ flex: 1, marginRight: 8 }}>
+                  <Text style={{ fontWeight: 'bold', fontSize: 13, color: theme.colors.onPrimaryContainer }}>
+                    + Quick Add Customer
+                  </Text>
+                  <Text style={{ fontSize: 11, color: theme.colors.onPrimaryContainer }} numberOfLines={1}>
+                    "{customerSearchQuery.trim()}"
+                  </Text>
+                </View>
+                <Button mode="contained" compact onPress={handleQuickAddCustomer} labelStyle={{ fontSize: 11, marginHorizontal: 4 }}>
+                  Add & Pick
+                </Button>
+              </Card.Content>
+            </Card>
+          )}
+
           <Dialog.ScrollArea>
             <FlatList
-              data={customers}
+              data={filteredCustomers}
               keyExtractor={(item) => item.id}
               renderItem={({ item }) => (
                 <List.Item
@@ -1330,6 +1223,7 @@ export const InvoiceBuilderScreen = ({ navigation, route }: any) => {
                   description={item.phone === '0000000000' ? 'Walk-in Customer' : item.phone}
                   onPress={() => {
                     setSelectedCustomerId(item.id);
+                    setCustomerSearchQuery('');
                     setCustomerDialogVisible(false);
                   }}
                   left={(props) => <List.Icon {...props} icon="account" />}
@@ -1340,11 +1234,18 @@ export const InvoiceBuilderScreen = ({ navigation, route }: any) => {
                   }
                 />
               )}
-              style={{ maxHeight: 300 }}
+              style={{ maxHeight: 260 }}
+              ListEmptyComponent={() => (
+                <View style={{ padding: 16, alignItems: 'center' }}>
+                  <Text style={{ color: theme.colors.onSurfaceVariant, fontSize: 13 }}>
+                    No matching customers found.
+                  </Text>
+                </View>
+              )}
             />
           </Dialog.ScrollArea>
           <Dialog.Actions>
-            <Button onPress={() => setCustomerDialogVisible(false)}>Cancel</Button>
+            <Button onPress={() => { setCustomerSearchQuery(''); setCustomerDialogVisible(false); }}>Cancel</Button>
           </Dialog.Actions>
         </Dialog>
 
@@ -1413,212 +1314,7 @@ export const InvoiceBuilderScreen = ({ navigation, route }: any) => {
           </Dialog.Actions>
         </Dialog>
 
-        {/* All Invoices Filter & PDF Reports Modal */}
-        <Dialog visible={filterModalVisible} onDismiss={() => setFilterModalVisible(false)} style={styles.dialog}>
-          <Dialog.Title style={styles.boldText}>Filter Invoices & PDF Reports</Dialog.Title>
-          <Dialog.ScrollArea style={{ maxHeight: 460, paddingHorizontal: 0 }}>
-            <ScrollView contentContainerStyle={{ paddingHorizontal: 24, paddingVertical: 12, gap: 16 }}>
-              {/* Filter by Date - Responsive Flex Wrap Chips */}
-              <View style={{ gap: 8 }}>
-                <Text variant="labelLarge" style={{ fontWeight: 'bold', color: theme.colors.primary }}>
-                  FILTER BY DATE
-                </Text>
-                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-                  {[
-                    { value: 'all', label: 'All Dates', icon: 'calendar-multiselect' },
-                    { value: 'today', label: 'Today', icon: 'calendar-today' },
-                    { value: 'week', label: 'Past 7 Days', icon: 'calendar-week' },
-                    { value: 'month', label: 'This Month', icon: 'calendar-month' },
-                  ].map((item) => {
-                    const selected = historyDateFilter === item.value;
-                    return (
-                      <Chip
-                        key={item.value}
-                        selected={selected}
-                        onPress={() => setHistoryDateFilter(item.value as any)}
-                        icon={selected ? 'check-circle' : item.icon}
-                        selectedColor="#FFFFFF"
-                        style={{
-                          backgroundColor: selected ? theme.colors.primary : '#F0F4F8',
-                          borderColor: selected ? theme.colors.primary : '#D0D7DE',
-                          borderWidth: selected ? 1.5 : 1,
-                        }}
-                        textStyle={{
-                          fontWeight: 'bold',
-                          fontSize: 13,
-                          color: selected ? '#FFFFFF' : '#333333',
-                        }}
-                      >
-                        {item.label}
-                      </Chip>
-                    );
-                  })}
-                </View>
-              </View>
-
-              <Divider />
-
-              {/* Filter by Status - Responsive Flex Wrap Chips */}
-              <View style={{ gap: 8 }}>
-                <Text variant="labelLarge" style={{ fontWeight: 'bold', color: theme.colors.primary }}>
-                  FILTER BY PAYMENT STATUS
-                </Text>
-                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-                  {[
-                    { value: 'all', label: 'All Status', icon: 'circle-outline' },
-                    { value: 'Paid', label: 'Paid Only', icon: 'check-circle' },
-                    { value: 'Unpaid', label: 'Unpaid Only', icon: 'clock-outline' },
-                  ].map((item) => {
-                    const selected = historyStatusFilter === item.value;
-                    return (
-                      <Chip
-                        key={item.value}
-                        selected={selected}
-                        onPress={() => setHistoryStatusFilter(item.value as any)}
-                        icon={selected ? 'check-circle' : item.icon}
-                        selectedColor="#FFFFFF"
-                        style={{
-                          backgroundColor: selected ? theme.colors.primary : '#F0F4F8',
-                          borderColor: selected ? theme.colors.primary : '#D0D7DE',
-                          borderWidth: selected ? 1.5 : 1,
-                        }}
-                        textStyle={{
-                          fontWeight: 'bold',
-                          fontSize: 13,
-                          color: selected ? '#FFFFFF' : '#333333',
-                        }}
-                      >
-                        {item.label}
-                      </Chip>
-                    );
-                  })}
-                </View>
-              </View>
-
-              <Divider />
-
-              {/* Filter by Bill Type (GST / Non-GST) - Responsive Flex Wrap Chips */}
-              <View style={{ gap: 8 }}>
-                <Text variant="labelLarge" style={{ fontWeight: 'bold', color: theme.colors.primary }}>
-                  FILTER BY BILL TYPE (GST / NON-GST)
-                </Text>
-                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-                  {[
-                    { value: 'all', label: 'All Bills', icon: 'file-document-outline' },
-                    { value: 'gst', label: 'GST Bills Only', icon: 'receipt-text-check-outline' },
-                    { value: 'nongst', label: 'Non-GST Only', icon: 'receipt-text-outline' },
-                  ].map((item) => {
-                    const selected = historyGstFilter === item.value;
-                    return (
-                      <Chip
-                        key={item.value}
-                        selected={selected}
-                        onPress={() => setHistoryGstFilter(item.value as any)}
-                        icon={selected ? 'check-circle' : item.icon}
-                        selectedColor="#FFFFFF"
-                        style={{
-                          backgroundColor: selected ? theme.colors.primary : '#F0F4F8',
-                          borderColor: selected ? theme.colors.primary : '#D0D7DE',
-                          borderWidth: selected ? 1.5 : 1,
-                        }}
-                        textStyle={{
-                          fontWeight: 'bold',
-                          fontSize: 13,
-                          color: selected ? '#FFFFFF' : '#333333',
-                        }}
-                      >
-                        {item.label}
-                      </Chip>
-                    );
-                  })}
-                </View>
-              </View>
-
-              <Divider />
-
-              {/* PDF Reports Options */}
-              <View style={{ gap: 10 }}>
-                <Text variant="labelLarge" style={{ fontWeight: 'bold', color: theme.colors.primary }}>
-                  EXPORT & SHARE PDF SALES REPORTS
-                </Text>
-
-                <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
-                  Share PDF sales reports filtered by date, payment status, and GST type ({filteredInvoices.length} matching invoices: {historyGstFilter === 'gst' ? 'GST Only' : historyGstFilter === 'nongst' ? 'Non-GST Only' : 'All Bills'}).
-                </Text>
-
-                {/* Responsive Share Buttons Layout */}
-                <View style={{ flexDirection: width < 420 ? 'column' : 'row', gap: 8 }}>
-                  <Button
-                    mode="contained"
-                    icon="share-variant-outline"
-                    onPress={() => { setFilterModalVisible(false); handleSharePdfReport('summary'); }}
-                    style={{ flex: width < 420 ? undefined : 1, borderRadius: 8 }}
-                    labelStyle={{ fontSize: 12, marginVertical: 6 }}
-                    compact
-                  >
-                    Share Summary PDF
-                  </Button>
-                  <Button
-                    mode="contained"
-                    icon="file-table-outline"
-                    onPress={() => { setFilterModalVisible(false); handleSharePdfReport('detailed'); }}
-                    style={{ flex: width < 420 ? undefined : 1, borderRadius: 8 }}
-                    labelStyle={{ fontSize: 12, marginVertical: 6 }}
-                    compact
-                  >
-                    Share Itemized PDF
-                  </Button>
-                </View>
-
-                <Divider style={{ marginVertical: 4 }} />
-
-                {/* CSV / JSON Invoices Export */}
-                <Text variant="labelLarge" style={{ fontWeight: 'bold', color: theme.colors.primary }}>
-                  EXPORT INVOICES DATA (CSV / JSON)
-                </Text>
-
-                <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
-                  Export matching {filteredInvoices.length} invoices as spreadsheet-ready CSV or structured JSON.
-                </Text>
-
-                <View style={{ flexDirection: width < 420 ? 'column' : 'row', gap: 8 }}>
-                  <Button
-                    mode="contained-tonal"
-                    icon="file-delimited"
-                    onPress={() => {
-                      setFilterModalVisible(false);
-                      handleExportInvoicesData('csv');
-                    }}
-                    style={{ flex: width < 420 ? undefined : 1, borderRadius: 8 }}
-                    labelStyle={{ fontSize: 12, marginVertical: 6 }}
-                    compact
-                  >
-                    Export CSV (.csv)
-                  </Button>
-                  <Button
-                    mode="contained-tonal"
-                    icon="code-json"
-                    onPress={() => {
-                      setFilterModalVisible(false);
-                      handleExportInvoicesData('json');
-                    }}
-                    style={{ flex: width < 420 ? undefined : 1, borderRadius: 8 }}
-                    labelStyle={{ fontSize: 12, marginVertical: 6 }}
-                    compact
-                  >
-                    Export JSON (.json)
-                  </Button>
-                </View>
-              </View>
-            </ScrollView>
-          </Dialog.ScrollArea>
-          <Dialog.Actions>
-            <Button onPress={() => { setHistoryDateFilter('all'); setHistoryStatusFilter('all'); setHistoryGstFilter('all'); }}>Clear Filters</Button>
-            <Button mode="contained" onPress={() => setFilterModalVisible(false)}>Done</Button>
-          </Dialog.Actions>
-        </Dialog>
-
-        {/* Reset / Action Feedback Snackbar */}
+        {/* Action Feedback Snackbar */}
         <Snackbar
           visible={snackbarVisible}
           onDismiss={() => setSnackbarVisible(false)}
@@ -1637,22 +1333,12 @@ export const InvoiceBuilderScreen = ({ navigation, route }: any) => {
               <Card.Content style={styles.loadingContent}>
                 <ActivityIndicator size="large" color={theme.colors.primary} />
                 <Text style={{ marginTop: 12, fontWeight: '500' }} variant="bodyMedium">
-                  Saving invoice details...
+                  Processing invoice...
                 </Text>
               </Card.Content>
             </Card>
           </View>
         </Portal>
-      )}
-
-      {/* Floating Go To Top Button for All Invoices */}
-      {activeTab === 'history' && showGoToTop && (
-        <FAB
-          icon="arrow-up"
-          style={styles.goToTopFab}
-          color="#FFFFFF"
-          onPress={scrollToTop}
-        />
       )}
     </View>
   );
@@ -1662,83 +1348,48 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  stickyCheckoutDock: {
-    borderTopWidth: 1,
-    borderTopColor: '#E0E0E0',
-    paddingHorizontal: 12,
-    paddingTop: 8,
-    paddingBottom: Platform.OS === 'ios' ? 24 : 10,
-    backgroundColor: '#FFFFFF',
-    elevation: 8,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: -3 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-  },
-  goToTopFab: {
-    position: 'absolute',
-    margin: 16,
-    right: 16,
-    bottom: 24,
-    backgroundColor: '#1976D2',
-    borderRadius: 28,
-  },
-  boldText: {
-    fontWeight: 'bold',
-  },
   card: {
-    borderRadius: 10,
     backgroundColor: '#FFFFFF',
-    marginBottom: 8,
+    borderRadius: 8,
   },
   compactCard: {
-    borderRadius: 10,
     backgroundColor: '#FFFFFF',
-    marginBottom: 8,
+    borderRadius: 8,
   },
   compactCustomerContent: {
+    paddingVertical: 6,
+    paddingHorizontal: 12,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: 6,
-    paddingHorizontal: 10,
-  },
-  customerSelector: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 6,
-    paddingHorizontal: 10,
   },
   sectionHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    marginBottom: 8,
     marginTop: 4,
-    marginBottom: 6,
   },
   emptyCard: {
-    borderRadius: 10,
-    borderStyle: 'dashed',
-    marginBottom: 8,
-    backgroundColor: 'transparent',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 8,
+    marginVertical: 4,
   },
   centerAlign: {
     alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 8,
+    paddingVertical: 16,
   },
   cartCard: {
-    borderRadius: 8,
-    marginBottom: 6,
     backgroundColor: '#FFFFFF',
+    marginBottom: 8,
+    borderRadius: 8,
   },
   cartCardContent: {
+    paddingVertical: 8,
+    paddingHorizontal: 12,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: 6,
-    paddingHorizontal: 10,
   },
   cartActions: {
     flexDirection: 'row',
@@ -1750,39 +1401,31 @@ const styles = StyleSheet.create({
     height: 32,
   },
   qtyText: {
-    paddingHorizontal: 6,
-    minWidth: 20,
+    minWidth: 28,
     textAlign: 'center',
   },
   calcRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 2,
   },
-  paymentMethodsRow: {
-    flexDirection: 'row',
-    gap: 6,
+  boldText: {
+    fontWeight: 'bold',
   },
-  paymentBtn: {
-    flex: 1,
-    borderRadius: 8,
-  },
-  paymentStatusRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  statusButtons: {
-    flexDirection: 'row',
-  },
-  saveBtn: {
-    borderRadius: 10,
-    paddingVertical: 2,
-    marginTop: 8,
+  stickyCheckoutDock: {
+    borderTopWidth: 1,
+    borderTopColor: '#E0E0E0',
+    paddingHorizontal: 12,
+    paddingTop: 8,
+    paddingBottom: Platform.OS === 'ios' ? 24 : 10,
+    elevation: 8,
+    shadowColor: '#000',
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: -2 },
   },
   loadingOverlay: {
-    ...StyleSheet.absoluteFill,
+    ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(0, 0, 0, 0.4)',
     alignItems: 'center',
     justifyContent: 'center',
@@ -1790,15 +1433,12 @@ const styles = StyleSheet.create({
   },
   loadingCard: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    padding: 8,
+    borderRadius: 12,
+    padding: 16,
   },
   loadingContent: {
     alignItems: 'center',
-    justifyContent: 'center',
-  },
-  dialog: {
-    borderRadius: 16,
-    backgroundColor: '#FFFFFF',
+    paddingVertical: 12,
+    paddingHorizontal: 24,
   },
 });

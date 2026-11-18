@@ -16,6 +16,7 @@ import {
 } from 'react-native-paper';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import { useBilling } from '../context/BillingContext';
+import { TerminalLockBanner } from '../components/TerminalLockBanner';
 import { Product } from '../db/types';
 
 const UNIT_DROPDOWN_OPTIONS = [
@@ -69,7 +70,7 @@ const getGstRateLabel = (rate: string): string => {
 
 export const ProductsScreen = () => {
   const theme = useTheme() as any;
-  const { products, saveProduct, deleteProduct, organization, isLoading, isDemoMode } = useBilling();
+  const { products, saveProduct, deleteProduct, organization, isLoading, isDemoMode, isPrinterLocked } = useBilling();
   const { width, height } = useWindowDimensions();
 
   const numColumns = width > 600 ? 2 : 1;
@@ -170,6 +171,13 @@ export const ProductsScreen = () => {
   };
 
   const openAddDialog = () => {
+    if (isPrinterLocked) {
+      Alert.alert(
+        'Terminal Creation Locked',
+        'Adding new inventory products is locked because your authorized thermal printer has not been connected for over 30 days. Please connect your printer or unlock with the Master Key.'
+      );
+      return;
+    }
     if (isDemoMode && products.length >= 3) {
       Alert.alert('Demo Limit Reached', 'Demo Version Limit: You can add a maximum of 3 inventory products in the Demo build.');
       return;
@@ -187,6 +195,13 @@ export const ProductsScreen = () => {
   };
 
   const openEditDialog = (product: Product) => {
+    if (isPrinterLocked) {
+      Alert.alert(
+        'Terminal Creation Locked',
+        'Editing inventory products is locked because your authorized thermal printer has not been connected for over 30 days. Please connect your printer or unlock with the Master Key.'
+      );
+      return;
+    }
     setEditingProduct(product);
     setName(product.name);
     setDescription(product.description || '');
@@ -256,6 +271,13 @@ export const ProductsScreen = () => {
   };
 
   const handleDelete = (id: string) => {
+    if (isPrinterLocked) {
+      Alert.alert(
+        'Terminal Creation Locked',
+        'Deleting inventory products is locked while the terminal is restricted.'
+      );
+      return;
+    }
     Alert.alert(
       'Delete Product',
       'Are you sure you want to delete this product from the inventory?',
@@ -286,6 +308,9 @@ export const ProductsScreen = () => {
   return (
     <View style={styles.container}>
       <View style={{ flex: 1, width: '100%', maxWidth: 900, alignSelf: 'center' }}>
+        {/* Terminal Security Lock Warning Banner */}
+        <TerminalLockBanner style={{ marginHorizontal: 16, marginTop: 10, marginBottom: 2 }} />
+
         {/* Search Input */}
         <TextInput
           placeholder="Search products..."

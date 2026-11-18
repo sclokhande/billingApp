@@ -4,22 +4,15 @@ import { Text, Card, Button, useTheme, Avatar, IconButton, Portal, Dialog, FAB }
 import { useBilling } from '../context/BillingContext';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import { AiAssistantModal } from '../components/AiAssistantModal';
+import { TerminalLockBanner } from '../components/TerminalLockBanner';
+import { QuickActionPrinterBadge } from '../components/QuickActionPrinterBadge';
+import { PrinterBatteryIndicator } from '../components/PrinterBatteryIndicator';
 import { isToday, formatInvoiceTime, formatInvoiceDate, sortInvoicesLatestFirst } from '../utils/dateUtils';
 
 export const DashboardScreen = ({ navigation }: any) => {
   const theme = useTheme() as any;
   const { invoices, organization, verifyPrinterConnectionOrRedirect, isPrinterLocked } = useBilling();
   const { width } = useWindowDimensions();
-
-  // Redirect to PrinterLockScreen if terminal is locked
-  React.useEffect(() => {
-    if (isPrinterLocked) {
-      navigation.reset({
-        index: 0,
-        routes: [{ name: 'PrinterLock' }],
-      });
-    }
-  }, [isPrinterLocked, navigation]);
 
   // Help & Support dialog state
   const [helpVisible, setHelpVisible] = useState(false);
@@ -240,6 +233,9 @@ export const DashboardScreen = ({ navigation }: any) => {
         style={styles.container}
       >
         <View style={{ width: '100%', maxWidth: 750, alignSelf: 'center' }}>
+          {/* Terminal Security Lock Warning Banner */}
+          <TerminalLockBanner navigation={navigation} />
+
           {/* Metrics Section (Horizontal Scroll for Today vs All-Time Total) */}
           <View style={styles.metricsContainer}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, paddingHorizontal: 16 }}>
@@ -380,10 +376,16 @@ export const DashboardScreen = ({ navigation }: any) => {
 
           {/* Quick Actions */}
           <View style={styles.actionsContainer}>
-            <Text variant="titleMedium" style={[styles.sectionTitle, styles.boldText]}>
-              Quick Actions
-            </Text>
-            <View style={styles.actionsRow}>
+            <View style={styles.quickActionsHeaderRow}>
+              <Text variant="titleMedium" style={[styles.sectionTitle, styles.boldText, { marginBottom: 0 }]}>
+                Quick Actions
+              </Text>
+              <View style={styles.printerClusterRow}>
+                <PrinterBatteryIndicator onPress={() => navigation.navigate('PrinterConnect')} />
+                <QuickActionPrinterBadge navigation={navigation} />
+              </View>
+            </View>
+            <View style={[styles.actionsRow, { marginTop: 10 }]}>
               <Button
                 mode="contained"
                 icon="receipt"
@@ -414,9 +416,9 @@ export const DashboardScreen = ({ navigation }: any) => {
                 <Text
                   variant="bodySmall"
                   style={{ color: theme.colors.primary, fontWeight: 'bold' }}
-                  onPress={() => navigation.navigate('Billing')}
+                  onPress={() => navigation.navigate('InvoiceHistory')}
                 >
-                  Create New
+                  View All Bills →
                 </Text>
               )}
             </View>
@@ -580,6 +582,17 @@ const styles = StyleSheet.create({
   actionsContainer: {
     paddingHorizontal: 16,
     marginBottom: 16,
+  },
+  quickActionsHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  printerClusterRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
   },
   sectionTitle: {
     marginBottom: 12,

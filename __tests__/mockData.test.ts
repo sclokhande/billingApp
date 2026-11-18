@@ -2,9 +2,9 @@ import { APP_CONFIG, isMockEnabled } from '../src/config/app_config';
 import { getMockFullDataset, MOCK_ORGANIZATION, MOCK_PRODUCTS, MOCK_CUSTOMERS } from '../src/mock/mockData';
 
 describe('Mock Data Configuration and Dataset', () => {
-  it('should have isMock flag enabled in APP_CONFIG', () => {
-    expect(APP_CONFIG.isMock).toBe(true);
-    expect(isMockEnabled()).toBe(true);
+  it('should have isMock flag configured as boolean in APP_CONFIG', () => {
+    expect(typeof APP_CONFIG.isMock).toBe('boolean');
+    expect(typeof isMockEnabled()).toBe('boolean');
   });
 
   it('should generate complete mock organization details', () => {

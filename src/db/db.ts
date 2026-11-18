@@ -51,106 +51,19 @@ const openSQLiteDB = async () => {
   }
 };
 
+import { runDatabaseMigrations } from './migrations';
+
 // Initialize Schemas
 export const initDB = async (): Promise<string> => {
   if (isSQLiteAvailable) {
     try {
       dbInstance = await openSQLiteDB();
       if (dbInstance) {
-        // Create tables
-        await dbInstance.executeSql(`
-          CREATE TABLE IF NOT EXISTS organization (
-            id TEXT PRIMARY KEY,
-            name TEXT,
-            address TEXT,
-            phone TEXT,
-            mobile TEXT,
-            email TEXT,
-            gstNumber TEXT,
-            showGstOnBill INTEGER,
-            currency TEXT,
-            slogan TEXT,
-            printWidth TEXT,
-            securityPin TEXT,
-            showFooterTextOnBill INTEGER DEFAULT 1,
-            footerText TEXT
-          );
-        `);
-        try {
-          await dbInstance.executeSql(`ALTER TABLE organization ADD COLUMN securityPin TEXT;`);
-        } catch (e) {
-          // Column already exists
-        }
-        await dbInstance.executeSql(`
-          CREATE TABLE IF NOT EXISTS products (
-            id TEXT PRIMARY KEY,
-            name TEXT,
-            description TEXT,
-            price REAL,
-            taxRate REAL,
-            unit TEXT,
-            stockQuantity REAL DEFAULT 0
-          );
-        `);
-        await dbInstance.executeSql(`
-          CREATE TABLE IF NOT EXISTS customers (
-            id TEXT PRIMARY KEY,
-            name TEXT,
-            phone TEXT,
-            email TEXT,
-            address TEXT
-          );
-        `);
-        await dbInstance.executeSql(`
-          CREATE TABLE IF NOT EXISTS invoices (
-            id TEXT PRIMARY KEY,
-            invoiceNumber TEXT,
-            customerId TEXT,
-            date TEXT,
-            subtotal REAL,
-            taxTotal REAL,
-            cgstTotal REAL,
-            sgstTotal REAL,
-            discount REAL,
-            grandTotal REAL,
-            paymentStatus TEXT,
-            paymentMethod TEXT
-          );
-        `);
-        await dbInstance.executeSql(`
-          CREATE TABLE IF NOT EXISTS invoice_items (
-            id TEXT PRIMARY KEY,
-            invoiceId TEXT,
-            productId TEXT,
-            name TEXT,
-            price REAL,
-            quantity REAL,
-            taxRate REAL,
-            total REAL,
-            unit TEXT
-          );
-        `);
-        // Migrations (Alter tables if columns are missing from existing DB)
-        try {
-          await dbInstance.executeSql('ALTER TABLE products ADD COLUMN unit TEXT;');
-        } catch (_) {}
-        try {
-          await dbInstance.executeSql('ALTER TABLE invoice_items ADD COLUMN unit TEXT;');
-        } catch (_) {}
-        try {
-          await dbInstance.executeSql('ALTER TABLE organization ADD COLUMN printWidth TEXT;');
-        } catch (_) {}
-        try {
-          await dbInstance.executeSql('ALTER TABLE organization ADD COLUMN showFooterTextOnBill INTEGER DEFAULT 1;');
-        } catch (_) {}
-        try {
-          await dbInstance.executeSql('ALTER TABLE organization ADD COLUMN footerText TEXT;');
-        } catch (_) {}
-        try {
-          await dbInstance.executeSql('ALTER TABLE products ADD COLUMN stockQuantity REAL DEFAULT 0;');
-        } catch (_) {}
-
-        console.log('[DB] SQLite database tables initialized.');
+        // Run automated versioned migrations (schema creation, indexes, column updates)
+        const migrationResult = await runDatabaseMigrations(async (sql: string, params: any[] = []) => {
+          return await dbInstance.executeSql(sql, params);
+        });
+        console.log(`[DB] SQLite database initialized at schema version v${migrationResult.currentVersion} (${migrationResult.applied} migrations applied).`);
         return 'SQLITE';
       }
     } catch (e) {

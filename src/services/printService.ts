@@ -24,24 +24,43 @@ export const formatRow = (leftText: string, rightText: string, width: number = L
   return safeLeft + ' '.repeat(spaceCount) + safeRight;
 };
 
-// Format address with word-wrapping
+// Format text with clean word-wrapping (breaks down overlong words without truncation)
 export const wrapText = (text: string, width: number = LINE_WIDTH): string[] => {
-  const safeText = String(text || '');
-  const words = safeText.split(' ');
+  const safeText = String(text || '').trim();
+  if (!safeText) return [];
+  const words = safeText.split(/\s+/);
   const lines: string[] = [];
   let currentLine = '';
 
   for (const word of words) {
-    if ((currentLine + word).length >= width) {
-      lines.push(currentLine.trim());
+    if (!word) continue;
+
+    // If the word itself is longer than the printable width, break it down
+    if (word.length > width) {
+      if (currentLine.trim()) {
+        lines.push(currentLine.trim());
+        currentLine = '';
+      }
+      let temp = word;
+      while (temp.length > width) {
+        lines.push(temp.substring(0, width));
+        temp = temp.substring(width);
+      }
+      currentLine = temp + ' ';
+    } else if ((currentLine + word).length > width) {
+      if (currentLine.trim()) {
+        lines.push(currentLine.trim());
+      }
       currentLine = word + ' ';
     } else {
       currentLine += word + ' ';
     }
   }
+
   if (currentLine.trim()) {
     lines.push(currentLine.trim());
   }
+
   return lines;
 };
 
@@ -177,7 +196,12 @@ export const formatThermalReceipt = (
   const currency = 'Rs.';
 
   // 1. Organization Header
-  lines.push(centerText(orgName, width));
+  const orgNameLines = wrapText(orgName, width);
+  if (orgNameLines.length === 0) {
+    lines.push(centerText('STORE', width));
+  } else {
+    orgNameLines.forEach((titleLine) => lines.push(centerText(titleLine, width)));
+  }
   if (orgAddress) {
     const wrappedAddress = wrapText(orgAddress, width);
     wrappedAddress.forEach((addrLine) => lines.push(centerText(addrLine, width)));
@@ -286,6 +310,12 @@ export const formatThermalReceipt = (
   lines.push(`Status:   ${invoice?.paymentStatus || 'Paid'}`);
   lines.push('-'.repeat(width));
 
+  // Dynamic UPI Payment Section (if enabled and configured)
+  if (org?.showUpiQrOnBill && org?.upiId?.trim()) {
+    lines.push(centerText('[ UPI SCAN & PAY ]', width));
+    lines.push('-'.repeat(width));
+  }
+
   // 6. Bottom Slogan / Footer
   if (org?.slogan) {
     const wrappedSlogan = wrapText(org.slogan, width);
@@ -304,6 +334,7 @@ export const formatThermalReceipt = (
     wrappedFooter.forEach((fLine) => lines.push(centerText(fLine, width)));
   }
   lines.push(''); // Reduced trailing lines to prevent too long paper feed
+  lines.push('='.repeat(width));
 
   return lines.join('\n');
 };

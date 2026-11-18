@@ -13,12 +13,25 @@ import {
 import { Text, TextInput, Button, Card, Avatar, useTheme } from 'react-native-paper';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { APP_CONFIG } from '../config/app_config';
+import { verifyActivationPin } from '../utils/cryptoSecurity';
+import { useBilling } from '../context/BillingContext';
 
 export const ActivationScreen = ({ navigation }: any) => {
   const theme = useTheme();
+  const { verifyAndAutoConnectPrinter } = useBilling();
   const [activationKey, setActivationKey] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
+
+  // Strictly ensure Bluetooth scan is stopped while on the First Time App Activation screen
+  React.useEffect(() => {
+    if (Platform.OS === 'android') {
+      try {
+        const { NativeModules } = require('react-native');
+        NativeModules.BluetoothScanner?.stopScan?.().catch(() => {});
+      } catch {}
+    }
+  }, []);
 
   const handleActivate = async () => {
     const trimmedInput = activationKey.trim().toUpperCase();
@@ -30,11 +43,12 @@ export const ActivationScreen = ({ navigation }: any) => {
     setIsSubmitting(true);
     setErrorMessage('');
 
-    const expectedPin = (APP_CONFIG.ACTIVATION_PIN || '').trim().toUpperCase();
-
-    if (trimmedInput === expectedPin) {
+    if (verifyActivationPin(trimmedInput)) {
       try {
         await AsyncStorage.setItem(APP_CONFIG.ACTIVATION_STORAGE_KEY, 'true');
+        // Once activated, initiate printer verification & background auto-connect
+        verifyAndAutoConnectPrinter().catch(() => {});
+
         Alert.alert(
           'Activation Successful',
           'Parchiwala App has been successfully activated on your device.',

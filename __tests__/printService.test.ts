@@ -125,4 +125,45 @@ describe('formatThermalReceipt - Footer Note & Preferences', () => {
     expect(receipt).not.toContain('CGST');
     expect(receipt).not.toContain('SGST');
   });
+
+  describe('Store Name Word-Wrapping & Multi-Line Header (58mm & 80mm)', () => {
+    it('breaks down long store names exceeding 32 characters into multiple centered lines without truncation on 58mm roll', () => {
+      const longStoreOrg: Organization = {
+        ...baseOrg,
+        name: 'Shree Ganesh General And Grocery Store', // 38 characters > 32 characters
+        printWidth: '58mm',
+      };
+
+      const receipt = formatThermalReceipt(longStoreOrg, baseCustomer, baseInvoice, items);
+      const lines = receipt.split('\n');
+
+      // First two lines should contain the full wrapped store name
+      expect(lines[0].trim()).toBe('SHREE GANESH GENERAL AND GROCERY');
+      expect(lines[1].trim()).toBe('STORE');
+
+      // Verify lines are padded to 32 characters (58mm width)
+      expect(lines[0].length).toBe(32);
+      expect(lines[1].length).toBe(32);
+
+      // Verify complete store name is preserved in full
+      expect(receipt).toContain('SHREE GANESH GENERAL AND GROCERY');
+      expect(receipt).toContain('STORE');
+    });
+
+    it('breaks down overlong words without truncation or infinite loops', () => {
+      const overlongWordOrg: Organization = {
+        ...baseOrg,
+        name: 'SUPERDEPARTMENTALSTORELONGERTHANTHIRTYTWOCHARS', // 46 characters continuous word
+        printWidth: '58mm',
+      };
+
+      const receipt = formatThermalReceipt(overlongWordOrg, baseCustomer, baseInvoice, items);
+      const lines = receipt.split('\n');
+
+      expect(lines[0].length).toBe(32);
+      expect(lines[1].length).toBe(32);
+      expect(lines[0].trim()).toBe('SUPERDEPARTMENTALSTORELONGERTHAN');
+      expect(lines[1].trim()).toBe('THIRTYTWOCHARS');
+    });
+  });
 });

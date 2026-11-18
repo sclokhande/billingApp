@@ -307,6 +307,7 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
         organization: billing.organization,
         connectedPrinter: billing.connectedPrinter,
         orderSession: activeOrderSession,
+        isPrinterLocked: billing.isPrinterLocked,
         onNavigate: (screen, params) => {
           onDismiss();
           navigation.navigate(screen, params);
@@ -373,6 +374,13 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
     }
 
     if (action.type === 'AUTO_PRINT_PREVIEW') {
+      if (billing.isPrinterLocked) {
+        Alert.alert(
+          'Terminal Creation Locked',
+          'Creating new invoices is locked because your authorized thermal printer has not been connected for over 30 days. Please connect your printer or unlock with the Master Key.'
+        );
+        return;
+      }
       const draft = action.payload;
       if (!draft || !draft.items || draft.items.length === 0) return;
 

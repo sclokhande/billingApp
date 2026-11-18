@@ -23,6 +23,7 @@ import {
   setPrinterLockFeatureEnabled,
 } from '../src/utils/printerLockManager';
 import { APP_CONFIG } from '../src/config/app_config';
+import { generateDailySupportKey } from '../src/utils/cryptoSecurity';
 
 describe('Printer Security Lock Manager', () => {
   beforeEach(async () => {
@@ -116,14 +117,62 @@ describe('Printer Security Lock Manager', () => {
     expect(failRes.success).toBe(false);
 
     // Valid master password
-    const successRes = await unlockWithMasterPassword(
-      APP_CONFIG.PRINTER_SECURITY_LOCK.MASTER_PASSWORD
-    );
+    const successRes = await unlockWithMasterPassword('v3LH$N$MwBP6');
     expect(successRes.success).toBe(true);
 
     const status = await evaluatePrinterLockStatus();
     expect(status.isLocked).toBe(false);
     expect(status.unlockedViaMaster).toBe(true);
+  });
+
+  it('should unlock when valid daily support emergency key is provided', async () => {
+    const mockDevice = { name: 'Parchiwala POS-58', address: '66:32:B1:A4:5E:20' };
+    await recordPrinterConnection(mockDevice);
+
+    const storeId = 'TEST_SWEET_SHOP';
+    const dailyKey = generateDailySupportKey(storeId);
+
+    const res = await unlockWithMasterPassword(dailyKey, storeId);
+    expect(res.success).toBe(true);
+    expect(res.message).toContain('Daily Emergency Support Key accepted');
+
+    const status = await evaluatePrinterLockStatus();
+    expect(status.isLocked).toBe(false);
+    expect(status.unlockedViaMaster).toBe(true);
+  });
+
+  it('should detect clock rollback exploit and lock terminal', async () => {
+    const mockDevice = { name: 'Parchiwala POS-58', address: '66:32:B1:A4:5E:20' };
+    await recordPrinterConnection(mockDevice);
+
+    // Simulate normal operation at time T
+    await evaluatePrinterLockStatus();
+
+    // Now simulate user rolling device clock back by 5 hours
+    const futureHighWatermark = Date.now() + 5 * 3600 * 1000;
+    await AsyncStorage.setItem(
+      APP_CONFIG.PRINTER_SECURITY_LOCK.STORAGE_KEYS.CLOCK_HIGH_WATERMARK,
+      futureHighWatermark.toString()
+    );
+
+    const status = await evaluatePrinterLockStatus();
+    expect(status.isLocked).toBe(true);
+    expect(status.timeRemainingHours).toBe(0);
+  });
+
+  it('should detect storage tampering when last connected timestamp is manipulated without valid checksum', async () => {
+    const mockDevice = { name: 'Parchiwala POS-58', address: '66:32:B1:A4:5E:20' };
+    await recordPrinterConnection(mockDevice);
+
+    // Malicious attacker directly edits SQLite/AsyncStorage to pretend they connected 10 seconds ago
+    // but without recalculating checksum with security pepper
+    await AsyncStorage.setItem(
+      APP_CONFIG.PRINTER_SECURITY_LOCK.STORAGE_KEYS.LAST_CONNECTED_TIMESTAMP,
+      (Date.now() - 10000).toString()
+    );
+
+    const status = await evaluatePrinterLockStatus();
+    expect(status.isLocked).toBe(true);
   });
 
   it('should respect feature flag when disabled', async () => {
